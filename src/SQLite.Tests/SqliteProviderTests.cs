@@ -7,16 +7,17 @@ using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Serilog;
 using Serilog.Extensions.Logging;
-using SQLite.Lib.Implementations;
+using SQLite.Lib;
 
 namespace SQLite.Tests
 {
+
     [TestClass]
     public class SqliteProviderTests
     {
-        private string _dbPath;
-        private SqliteProvider<TestEntity> _provider;
-        private ILogger<SqliteProvider<TestEntity>> _logger;
+        private string _dbPath = null!;
+        private SqliteProvider<TestEntity> _provider = null!;
+        private ILogger<SqliteProvider<TestEntity>> _logger = null!;
 
         [TestInitialize]
         public void Setup()
@@ -41,7 +42,7 @@ namespace SQLite.Tests
         [TestCleanup]
         public void Cleanup()
         {
-            _provider = null;
+            _provider = null!;
             GC.Collect();
             GC.WaitForPendingFinalizers();
 
@@ -65,12 +66,7 @@ namespace SQLite.Tests
         public void Insert_ShouldInsertEntityAndReturnWithId()
         {
             // Arrange
-            var entity = new TestEntity
-            {
-                Name = "Test Entity",
-                Value = 42,
-                IsActive = true
-            };
+            var entity = new TestEntity { Name = "Test Entity", Value = 42, IsActive = true };
 
             // Act
             var result = _provider.Insert(entity);
@@ -170,9 +166,7 @@ namespace SQLite.Tests
             // Arrange
             var entities = new List<TestEntity>
             {
-                new TestEntity { Name = "Entity 1", Value = 1 },
-                new TestEntity { Name = "Entity 2", Value = 2 },
-                new TestEntity { Name = "Entity 3", Value = 3 }
+                new TestEntity { Name = "Entity 1", Value = 1 }, new TestEntity { Name = "Entity 2", Value = 2 }, new TestEntity { Name = "Entity 3", Value = 3 }
             };
             _provider.InsertBatch(entities);
 
@@ -285,12 +279,8 @@ namespace SQLite.Tests
         public void ExecuteQuery_ShouldReturnCustomResults()
         {
             // Arrange
-            _provider.InsertBatch(new[]
-            {
-                new TestEntity { Name = "A", Value = 10 },
-                new TestEntity { Name = "B", Value = 20 },
-                new TestEntity { Name = "C", Value = 30 }
-            });
+            _provider.InsertBatch(
+                new[] { new TestEntity { Name = "A", Value = 10 }, new TestEntity { Name = "B", Value = 20 }, new TestEntity { Name = "C", Value = 30 } });
 
             // Act
             var sql = $"SELECT Id, Data FROM {nameof(TestEntity)} WHERE json_extract(Data, '$.Value') > @minValue";
@@ -309,9 +299,7 @@ namespace SQLite.Tests
             var entities = Enumerable.Range(1, recordCount)
                 .Select(i => new TestEntity
                 {
-                    Name = $"Entity {i}",
-                    Value = i,
-                    LargeText = new string('X', 1000) // 1KB of data
+                    Name = $"Entity {i}", Value = i, LargeText = new string('X', 1000) // 1KB of data
                 })
                 .ToList();
 
@@ -329,7 +317,7 @@ namespace SQLite.Tests
     public class TestEntity
     {
         public long Id { get; set; }
-        public string Name { get; set; }
+        public string Name { get; set; } = string.Empty;
         public int Value { get; set; }
         public bool IsActive { get; set; }
         public DateTime CreatedAt { get; set; }

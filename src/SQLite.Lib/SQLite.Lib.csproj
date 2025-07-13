@@ -12,12 +12,4 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Abstractions\" />
-    <Folder Include="Implementations\" />
-    <Folder Include="Models\" />
-    <Folder Include="Extensions\" />
-    <Folder Include="Exceptions\" />
-  </ItemGroup>
-
 </Project>

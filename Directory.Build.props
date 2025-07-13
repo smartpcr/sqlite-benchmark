@@ -1,12 +1,11 @@
 <Project>
   <PropertyGroup>
-    <TargetFramework>net462</TargetFramework>
+    <TargetFramework>net472</TargetFramework>
     <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
-
+    
     <!-- Assembly info -->
     <Product>SQLite Benchmark</Product>
     <Company>Your Company</Company>
@@ -16,12 +15,6 @@
 
     <!-- Output paths -->
     <BaseOutputPath>$(MSBuildThisFileDirectory)bin\</BaseOutputPath>
-    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)obj\</BaseIntermediateOutputPath>
-
-    <!-- Code analysis -->
-    <EnableNETAnalyzers>true</EnableNETAnalyzers>
-    <AnalysisLevel>latest</AnalysisLevel>
-    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
 
     <!-- Central package management -->
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>

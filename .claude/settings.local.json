@@ -5,7 +5,11 @@
       "Bash(dotnet new:*)",
       "Bash(mv:*)",
       "Bash(rmdir:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(find:*)",
+      "Bash(dotnet build:*)",
+      "Bash(dos2unix:*)",
+      "Bash(true)"
     ],
     "deny": []
   }

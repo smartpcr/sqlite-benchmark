@@ -7,7 +7,7 @@ using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Diagnosers;
 using BenchmarkDotNet.Jobs;
-using SQLite.Lib.Implementations;
+using SQLite.Lib;
 
 namespace SQLite.Benchmark
 {
@@ -16,16 +16,14 @@ namespace SQLite.Benchmark
     [ThreadingDiagnoser]
     public class SqliteProviderBenchmarks
     {
-        private SqliteProvider<BenchmarkEntity> _provider;
-        private string _dbPath;
-        private List<BenchmarkEntity> _testData;
-        private List<long> _existingIds;
+        private SqliteProvider<BenchmarkEntity> _provider = null!;
+        private string _dbPath = null!;
+        private List<BenchmarkEntity> _testData = null!;
+        private List<long> _existingIds = null!;
 
-        [Params(100, 1000, 10000)]
-        public int RecordCount { get; set; }
+        [Params(100, 1000, 10000)] public int RecordCount { get; set; }
 
-        [Params(1, 4, 8)]
-        public int ThreadCount { get; set; }
+        [Params(1, 4, 8)] public int ThreadCount { get; set; }
 
         [GlobalSetup]
         public void Setup()
@@ -57,13 +55,14 @@ namespace SQLite.Benchmark
         [GlobalCleanup]
         public void Cleanup()
         {
-            _provider = null;
+            _provider = null!;
             GC.Collect();
             GC.WaitForPendingFinalizers();
 
             if (File.Exists(_dbPath))
             {
-                try { File.Delete(_dbPath); } catch { }
+                try { File.Delete(_dbPath); }
+                catch { }
             }
         }
 
@@ -104,9 +103,14 @@ namespace SQLite.Benchmark
         public bool SingleUpdate()
         {
             var entity = _provider.GetById(_existingIds[0]);
-            entity.Name = "Updated " + entity.Name;
-            entity.Value++;
-            return _provider.Update(entity);
+            if (entity != null)
+            {
+                entity.Name = "Updated " + entity.Name;
+                entity.Value++;
+                return _provider.Update(entity);
+            }
+
+            return false;
         }
 
         [Benchmark]
@@ -118,6 +122,7 @@ namespace SQLite.Benchmark
                 _existingIds.RemoveAt(0);
                 return _provider.Delete(id);
             }
+
             return false;
         }
 
@@ -153,6 +158,7 @@ namespace SQLite.Benchmark
                     }
                 });
             }
+
             await Task.WhenAll(tasks);
         }
 
@@ -167,15 +173,12 @@ namespace SQLite.Benchmark
                 {
                     for (int j = 0; j < 5; j++)
                     {
-                        var entity = new BenchmarkEntity
-                        {
-                            Name = $"Concurrent {threadId}-{j}",
-                            Value = threadId * 100 + j
-                        };
+                        var entity = new BenchmarkEntity { Name = $"Concurrent {threadId}-{j}", Value = threadId * 100 + j };
                         _provider.Insert(entity);
                     }
                 });
             }
+
             await Task.WhenAll(tasks);
         }
 
@@ -183,12 +186,12 @@ namespace SQLite.Benchmark
         public void ComplexQuery()
         {
             var sql = @"
-                SELECT Id, Data
-                FROM BenchmarkEntity
-                WHERE json_extract(Data, '$.Value') > @minValue
-                  AND json_extract(Data, '$.IsActive') = 1
-                ORDER BY json_extract(Data, '$.Value') DESC
-                LIMIT 50";
+                    SELECT Id, Data
+                    FROM BenchmarkEntity
+                    WHERE json_extract(Data, '$.Value') > @minValue
+                      AND json_extract(Data, '$.IsActive') = 1
+                    ORDER BY json_extract(Data, '$.Value') DESC
+                    LIMIT 50";
 
             _provider.ExecuteQuery(sql, new { minValue = RecordCount / 2 }).ToList();
         }

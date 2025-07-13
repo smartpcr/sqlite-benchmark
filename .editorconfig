@@ -10,7 +10,7 @@ indent_style = space
 indent_size = 2
 insert_final_newline = true
 trim_trailing_whitespace = true
-end_of_line = crlf
+end_of_line = lf
 
 # Code files
 [*.{cs,csx,vb,vbx}]
@@ -18,7 +18,6 @@ indent_size = 4
 
 # C# files
 [*.cs]
-
 # New line preferences
 csharp_new_line_before_open_brace = all
 csharp_new_line_before_else = true
@@ -42,13 +41,9 @@ csharp_space_between_method_call_parameter_list_parentheses = false
 csharp_space_between_method_call_empty_parameter_list_parentheses = false
 csharp_space_between_method_call_name_and_opening_parenthesis = false
 csharp_space_after_comma = true
-csharp_space_before_comma = false
 csharp_space_after_dot = false
-csharp_space_before_dot = false
 csharp_space_after_semicolon_in_for_statement = true
-csharp_space_before_semicolon_in_for_statement = false
 csharp_space_around_binary_operators = before_and_after
-csharp_space_around_declaration_statements = false
 csharp_space_before_open_square_brackets = false
 csharp_space_between_empty_square_brackets = false
 csharp_space_between_square_brackets = false
@@ -63,8 +58,11 @@ csharp_prefer_simple_using_statement = true:suggestion
 
 # Expression preferences
 csharp_prefer_simple_default_expression = true:suggestion
-csharp_style_pattern_local_over_anonymous_function = true:suggestion
+csharp_style_deconstructed_variable_declaration = true:suggestion
 csharp_style_inlined_variable_declaration = true:suggestion
+csharp_style_pattern_local_over_anonymous_function = true:suggestion
+csharp_style_prefer_index_operator = true:suggestion
+csharp_style_prefer_range_operator = true:suggestion
 
 # C# formatting rules
 csharp_using_directive_placement = outside_namespace:warning

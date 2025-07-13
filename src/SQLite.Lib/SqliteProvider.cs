@@ -5,14 +5,13 @@ using System.Data.SQLite;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Text;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using SQLite.Lib.Abstractions;
-using SQLite.Lib.Models;
 
-namespace SQLite.Lib.Implementations
+namespace SQLite.Lib
 {
+
     /// <summary>
     /// Generic SQLite provider for CRUD operations
     /// </summary>
@@ -28,17 +27,17 @@ namespace SQLite.Lib.Implementations
 
         public SqliteProvider(string connectionString, ILogger<SqliteProvider<T>> logger = null)
         {
-            _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
-            _logger = logger;
-            _tableName = typeof(T).Name;
-            _idProperty = typeof(T).GetProperty("Id") ?? throw new InvalidOperationException($"Type {typeof(T).Name} must have an Id property");
+            this._connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+            this._logger = logger;
+            this._tableName = typeof(T).Name;
+            this._idProperty = typeof(T).GetProperty("Id") ?? throw new InvalidOperationException($"Type {typeof(T).Name} must have an Id property");
 
-            Initialize();
+            this.Initialize();
         }
 
         private void Initialize()
         {
-            using (var connection = CreateConnection())
+            using (var connection = this.CreateConnection())
             {
                 connection.Open();
 
@@ -60,100 +59,120 @@ namespace SQLite.Lib.Implementations
 
         private SQLiteConnection CreateConnection()
         {
-            return new SQLiteConnection(_connectionString);
+            return new SQLiteConnection(this._connectionString);
         }
 
         private SQLiteConnection GetConnection()
         {
-            return _currentConnection ?? CreateConnection();
+            return this._currentConnection ?? this.CreateConnection();
         }
 
         public void CreateTable()
         {
             var sql = $@"
-                CREATE TABLE IF NOT EXISTS {_tableName} (
+                CREATE TABLE IF NOT EXISTS {this._tableName} (
                     Id INTEGER PRIMARY KEY AUTOINCREMENT,
                     Data TEXT NOT NULL,
                     CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
                     UpdatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
 
-                CREATE INDEX IF NOT EXISTS idx_{_tableName}_created ON {_tableName}(CreatedAt);
-                CREATE INDEX IF NOT EXISTS idx_{_tableName}_updated ON {_tableName}(UpdatedAt);";
+                CREATE INDEX IF NOT EXISTS idx_{this._tableName}_created ON {this._tableName}(CreatedAt);
+                CREATE INDEX IF NOT EXISTS idx_{this._tableName}_updated ON {this._tableName}(UpdatedAt);";
 
-            ExecuteCommand(sql);
-            _logger?.LogInformation($"Table {_tableName} created or verified");
+            this.ExecuteCommand(sql);
+            this._logger?.LogInformation($"Table {this._tableName} created or verified");
         }
 
         public T Insert(T entity)
         {
-            if (entity == null) throw new ArgumentNullException(nameof(entity));
+            if (entity == null)
+            {
+                throw new ArgumentNullException(nameof(entity));
+            }
 
             var json = JsonConvert.SerializeObject(entity);
-            var sql = $"INSERT INTO {_tableName} (Data) VALUES (@data); SELECT last_insert_rowid();";
+            var sql = $"INSERT INTO {this._tableName} (Data) VALUES (@data); SELECT last_insert_rowid();";
 
-            using (var connection = GetConnection())
+            var connection = this.GetConnection();
+            var isTransactionConnection = connection == this._currentConnection;
+            var shouldClose = !isTransactionConnection && connection.State != ConnectionState.Open;
+
+            if (shouldClose)
             {
-                var shouldClose = connection.State != ConnectionState.Open;
-                if (shouldClose) connection.Open();
+                connection.Open();
+            }
 
-                try
+            try
+            {
+                using (var cmd = connection.CreateCommand())
                 {
-                    using (var cmd = connection.CreateCommand())
-                    {
-                        cmd.CommandText = sql;
-                        cmd.Parameters.AddWithValue("@data", json);
-                        cmd.Transaction = _currentTransaction;
+                    cmd.CommandText = sql;
+                    cmd.Parameters.AddWithValue("@data", json);
+                    cmd.Transaction = this._currentTransaction;
 
-                        var id = Convert.ToInt64(cmd.ExecuteScalar());
-                        _idProperty.SetValue(entity, id);
+                    var id = Convert.ToInt64(cmd.ExecuteScalar());
+                    this._idProperty.SetValue(entity, id);
 
-                        _logger?.LogDebug($"Inserted entity with ID {id} into {_tableName}");
-                        return entity;
-                    }
+                    this._logger?.LogDebug($"Inserted entity with ID {id} into {this._tableName}");
+                    return entity;
                 }
-                finally
+            }
+            finally
+            {
+                if (shouldClose && !isTransactionConnection)
                 {
-                    if (shouldClose) connection.Close();
+                    connection.Close();
+                    connection.Dispose();
                 }
             }
         }
 
         public int InsertBatch(IEnumerable<T> entities)
         {
-            if (entities == null) throw new ArgumentNullException(nameof(entities));
+            if (entities == null)
+            {
+                throw new ArgumentNullException(nameof(entities));
+            }
 
             var entityList = entities.ToList();
-            if (!entityList.Any()) return 0;
+            if (!entityList.Any())
+            {
+                return 0;
+            }
 
             var count = 0;
-            var wasInTransaction = _currentTransaction != null;
+            var wasInTransaction = this._currentTransaction != null;
 
             if (!wasInTransaction)
             {
-                using (BeginTransaction())
+                using (this.BeginTransaction())
                 {
-                    count = InsertBatchInternal(entityList);
+                    count = this.InsertBatchInternal(entityList);
                 }
             }
             else
             {
-                count = InsertBatchInternal(entityList);
+                count = this.InsertBatchInternal(entityList);
             }
 
-            _logger?.LogInformation($"Batch inserted {count} entities into {_tableName}");
+            this._logger?.LogInformation($"Batch inserted {count} entities into {this._tableName}");
             return count;
         }
 
         private int InsertBatchInternal(List<T> entities)
         {
-            var sql = $"INSERT INTO {_tableName} (Data) VALUES (@data)";
+            var sql = $"INSERT INTO {this._tableName} (Data) VALUES (@data)";
             var count = 0;
+            if (this._currentConnection == null)
+            {
+                throw new InvalidOperationException("No active connection available for batch insert");
+            }
 
-            using (var cmd = _currentConnection.CreateCommand())
+            using (var cmd = this._currentConnection.CreateCommand())
             {
                 cmd.CommandText = sql;
-                cmd.Transaction = _currentTransaction;
+                cmd.Transaction = this._currentTransaction;
                 var parameter = cmd.Parameters.Add("@data", DbType.String);
 
                 foreach (var entity in entities)
@@ -169,70 +188,78 @@ namespace SQLite.Lib.Implementations
 
         public bool Update(T entity)
         {
-            if (entity == null) throw new ArgumentNullException(nameof(entity));
+            if (entity == null)
+            {
+                throw new ArgumentNullException(nameof(entity));
+            }
 
-            var id = _idProperty.GetValue(entity);
-            if (id == null) throw new InvalidOperationException("Entity must have an ID to update");
-
+            var id = this._idProperty.GetValue(entity) ?? throw new InvalidOperationException("Entity must have an ID to update");
             var json = JsonConvert.SerializeObject(entity);
-            var sql = $"UPDATE {_tableName} SET Data = @data, UpdatedAt = CURRENT_TIMESTAMP WHERE Id = @id";
+            var sql = $"UPDATE {this._tableName} SET Data = @data, UpdatedAt = CURRENT_TIMESTAMP WHERE Id = @id";
 
-            var affected = ExecuteCommand(sql, new { data = json, id = id });
-            _logger?.LogDebug($"Updated entity with ID {id} in {_tableName}");
+            var affected = this.ExecuteCommand(sql, new { data = json, id = id });
+            this._logger?.LogDebug($"Updated entity with ID {id} in {this._tableName}");
 
             return affected > 0;
         }
 
         public bool Delete(long id)
         {
-            var sql = $"DELETE FROM {_tableName} WHERE Id = @id";
-            var affected = ExecuteCommand(sql, new { id = id });
+            var sql = $"DELETE FROM {this._tableName} WHERE Id = @id";
+            var affected = this.ExecuteCommand(sql, new { id = id });
 
-            _logger?.LogDebug($"Deleted entity with ID {id} from {_tableName}");
+            this._logger?.LogDebug($"Deleted entity with ID {id} from {this._tableName}");
             return affected > 0;
         }
 
         public T GetById(long id)
         {
-            var sql = $"SELECT Id, Data FROM {_tableName} WHERE Id = @id";
-            return ExecuteQuery(sql, new { id = id }).FirstOrDefault();
+            var sql = $"SELECT Id, Data FROM {this._tableName} WHERE Id = @id";
+            return this.ExecuteQuery(sql, new { id = id }).FirstOrDefault();
         }
 
         public IEnumerable<T> GetAll()
         {
-            var sql = $"SELECT Id, Data FROM {_tableName} ORDER BY Id";
-            return ExecuteQuery(sql);
+            var sql = $"SELECT Id, Data FROM {this._tableName} ORDER BY Id";
+            return this.ExecuteQuery(sql);
         }
 
         public IEnumerable<T> Find(Expression<Func<T, bool>> predicate)
         {
             // For simplicity, load all and filter in memory
             // In production, consider expression tree parsing for SQL generation
-            var all = GetAll();
+            var all = this.GetAll();
             return all.Where(predicate.Compile());
         }
 
         public long Count()
         {
-            var sql = $"SELECT COUNT(*) FROM {_tableName}";
+            var sql = $"SELECT COUNT(*) FROM {this._tableName}";
 
-            using (var connection = GetConnection())
+            var connection = this.GetConnection();
+            var isTransactionConnection = connection == this._currentConnection;
+            var shouldClose = !isTransactionConnection && connection.State != ConnectionState.Open;
+
+            if (shouldClose)
             {
-                var shouldClose = connection.State != ConnectionState.Open;
-                if (shouldClose) connection.Open();
+                connection.Open();
+            }
 
-                try
+            try
+            {
+                using (var cmd = connection.CreateCommand())
                 {
-                    using (var cmd = connection.CreateCommand())
-                    {
-                        cmd.CommandText = sql;
-                        cmd.Transaction = _currentTransaction;
-                        return Convert.ToInt64(cmd.ExecuteScalar());
-                    }
+                    cmd.CommandText = sql;
+                    cmd.Transaction = this._currentTransaction;
+                    return Convert.ToInt64(cmd.ExecuteScalar());
                 }
-                finally
+            }
+            finally
+            {
+                if (shouldClose && !isTransactionConnection)
                 {
-                    if (shouldClose) connection.Close();
+                    connection.Close();
+                    connection.Dispose();
                 }
             }
         }
@@ -240,48 +267,59 @@ namespace SQLite.Lib.Implementations
         public long Count(Expression<Func<T, bool>> predicate)
         {
             // For simplicity, load all and count in memory
-            return Find(predicate).Count();
+            return this.Find(predicate).Count();
         }
 
         public IEnumerable<T> ExecuteQuery(string sql, params object[] parameters)
         {
             var results = new List<T>();
 
-            using (var connection = GetConnection())
+            var connection = this.GetConnection();
+            var isTransactionConnection = connection == this._currentConnection;
+            var shouldClose = !isTransactionConnection && connection.State != ConnectionState.Open;
+
+            if (shouldClose)
             {
-                var shouldClose = connection.State != ConnectionState.Open;
-                if (shouldClose) connection.Open();
+                connection.Open();
+            }
 
-                try
+            try
+            {
+                using (var cmd = connection.CreateCommand())
                 {
-                    using (var cmd = connection.CreateCommand())
+                    cmd.CommandText = sql;
+                    cmd.Transaction = this._currentTransaction;
+
+                    this.AddParameters(cmd, parameters);
+
+                    using (var reader = cmd.ExecuteReader())
                     {
-                        cmd.CommandText = sql;
-                        cmd.Transaction = _currentTransaction;
-
-                        AddParameters(cmd, parameters);
-
-                        using (var reader = cmd.ExecuteReader())
+                        while (reader.Read())
                         {
-                            while (reader.Read())
+                            var json = reader.GetString(reader.GetOrdinal("Data"));
+                            var entity = JsonConvert.DeserializeObject<T>(json);
+                            if (entity == null)
                             {
-                                var json = reader.GetString(reader.GetOrdinal("Data"));
-                                var entity = JsonConvert.DeserializeObject<T>(json);
-
-                                if (reader.GetOrdinal("Id") >= 0)
-                                {
-                                    var id = reader.GetInt64(reader.GetOrdinal("Id"));
-                                    _idProperty.SetValue(entity, id);
-                                }
-
-                                results.Add(entity);
+                                continue;
                             }
+
+                            if (reader.GetOrdinal("Id") >= 0)
+                            {
+                                var id = reader.GetInt64(reader.GetOrdinal("Id"));
+                                this._idProperty.SetValue(entity, id);
+                            }
+
+                            results.Add(entity);
                         }
                     }
                 }
-                finally
+            }
+            finally
+            {
+                if (shouldClose && !isTransactionConnection)
                 {
-                    if (shouldClose) connection.Close();
+                    connection.Close();
+                    connection.Dispose();
                 }
             }
 
@@ -290,37 +328,50 @@ namespace SQLite.Lib.Implementations
 
         public int ExecuteCommand(string sql, params object[] parameters)
         {
-            using (var connection = GetConnection())
+            var connection = this.GetConnection();
+            var isTransactionConnection = connection == this._currentConnection;
+            var shouldClose = !isTransactionConnection && connection.State != ConnectionState.Open;
+
+            if (shouldClose)
             {
-                var shouldClose = connection.State != ConnectionState.Open;
-                if (shouldClose) connection.Open();
+                connection.Open();
+            }
 
-                try
+            try
+            {
+                using (var cmd = connection.CreateCommand())
                 {
-                    using (var cmd = connection.CreateCommand())
-                    {
-                        cmd.CommandText = sql;
-                        cmd.Transaction = _currentTransaction;
+                    cmd.CommandText = sql;
+                    cmd.Transaction = this._currentTransaction;
 
-                        AddParameters(cmd, parameters);
+                    this.AddParameters(cmd, parameters);
 
-                        return cmd.ExecuteNonQuery();
-                    }
+                    return cmd.ExecuteNonQuery();
                 }
-                finally
+            }
+            finally
+            {
+                if (shouldClose && !isTransactionConnection)
                 {
-                    if (shouldClose) connection.Close();
+                    connection.Close();
+                    connection.Dispose();
                 }
             }
         }
 
         private void AddParameters(SQLiteCommand cmd, object[] parameters)
         {
-            if (parameters == null || parameters.Length == 0) return;
+            if (parameters == null || parameters.Length == 0)
+            {
+                return;
+            }
 
             foreach (var param in parameters)
             {
-                if (param == null) continue;
+                if (param == null)
+                {
+                    continue;
+                }
 
                 var type = param.GetType();
                 if (type.IsAnonymousType())
@@ -339,61 +390,114 @@ namespace SQLite.Lib.Implementations
 
         public IDisposable BeginTransaction()
         {
-            if (_currentTransaction != null)
+            if (this._currentTransaction != null)
+            {
                 throw new InvalidOperationException("Transaction already in progress");
+            }
 
-            _currentConnection = CreateConnection();
-            _currentConnection.Open();
-            _currentTransaction = _currentConnection.BeginTransaction();
+            this._currentConnection = this.CreateConnection();
+            this._currentConnection.Open();
+            this._currentTransaction = this._currentConnection.BeginTransaction();
 
             return new TransactionScope(this);
         }
 
+        // Transaction scope that provides implicit commit behavior for backward compatibility
         private class TransactionScope : IDisposable
         {
             private readonly SqliteProvider<T> _provider;
+            private readonly SQLiteTransaction _transaction;
+            private readonly SQLiteConnection _connection;
             private bool _disposed;
+            private Exception _firstException;
 
             public TransactionScope(SqliteProvider<T> provider)
             {
-                _provider = provider;
+                this._provider = provider;
+                this._transaction = provider._currentTransaction;
+                this._connection = provider._currentConnection;
+                
+                // Register for first chance exceptions to detect if any exception occurs
+                AppDomain.CurrentDomain.FirstChanceException += OnFirstChanceException;
+            }
+
+            private void OnFirstChanceException(object sender, System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs e)
+            {
+                // Capture the first exception that occurs while this transaction is active
+                if (_firstException == null && !_disposed && _transaction != null)
+                {
+                    _firstException = e.Exception;
+                }
             }
 
             public void Dispose()
             {
-                if (_disposed) return;
+                if (this._disposed)
+                    return;
 
-                try
+                this._disposed = true;
+
+                // Unregister event handler
+                AppDomain.CurrentDomain.FirstChanceException -= OnFirstChanceException;
+
+                // Clear provider references first
+                this._provider._currentTransaction = null;
+                this._provider._currentConnection = null;
+
+                if (_transaction != null)
                 {
-                    _provider._currentTransaction?.Commit();
-                }
-                catch
-                {
-                    _provider._currentTransaction?.Rollback();
-                    throw;
-                }
-                finally
-                {
-                    _provider._currentTransaction?.Dispose();
-                    _provider._currentConnection?.Close();
-                    _provider._currentConnection?.Dispose();
-                    _provider._currentTransaction = null;
-                    _provider._currentConnection = null;
-                    _disposed = true;
+                    try
+                    {
+                        // Commit only if no exception was thrown during the transaction
+                        if (_firstException == null)
+                        {
+                            _transaction.Commit();
+                        }
+                        else
+                        {
+                            _transaction.Rollback();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        this._provider._logger?.LogError(ex, "Error during transaction finalization");
+                        
+                        // Try to rollback if commit failed
+                        try
+                        {
+                            _transaction.Rollback();
+                        }
+                        catch
+                        {
+                            // Ignore rollback errors
+                        }
+                        
+                        // Re-throw only if we were trying to commit
+                        if (_firstException == null)
+                            throw;
+                    }
+                    finally
+                    {
+                        // Always clean up
+                        _transaction.Dispose();
+                        _connection?.Close();  
+                        _connection?.Dispose();
+                    }
                 }
             }
         }
 
+
         public void Vacuum()
         {
-            ExecuteCommand("VACUUM");
-            _logger?.LogInformation($"Vacuum completed for {_tableName}");
+            this.ExecuteCommand("VACUUM");
+            this._logger?.LogInformation($"Vacuum completed for {this._tableName}");
         }
 
         public void Analyze()
         {
-            ExecuteCommand($"ANALYZE {_tableName}");
-            _logger?.LogInformation($"Analyze completed for {_tableName}");
+            this.ExecuteCommand($"ANALYZE {this._tableName}");
+            this._logger?.LogInformation($"Analyze completed for {this._tableName}");
         }
     }
 
@@ -402,10 +506,10 @@ namespace SQLite.Lib.Implementations
         public static bool IsAnonymousType(this Type type)
         {
             return type.IsClass
-                && type.IsSealed
-                && type.Attributes.HasFlag(TypeAttributes.NotPublic)
-                && type.Name.StartsWith("<>")
-                && type.Name.Contains("AnonymousType");
+                   && type.IsSealed
+                   && type.Attributes.HasFlag(TypeAttributes.NotPublic)
+                   && type.Name.StartsWith("<>")
+                   && type.Name.Contains("AnonymousType");
         }
     }
 }
