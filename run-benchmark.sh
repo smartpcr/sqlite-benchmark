@@ -15,6 +15,7 @@ NC='\033[0m' # No Color
 CONFIGURATION="Release"
 FILTER="*"
 NO_BUILD=0
+BENCHMARK_TYPE=""
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -27,6 +28,10 @@ while [[ $# -gt 0 ]]; do
             FILTER="$2"
             shift 2
             ;;
+        -t|--type)
+            BENCHMARK_TYPE="$2"
+            shift 2
+            ;;
         --no-build)
             NO_BUILD=1
             shift
@@ -36,6 +41,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  -c, --configuration <Debug|Release>  Build configuration (default: Release)"
             echo "  -f, --filter <pattern>              Filter benchmarks (default: *)"
+            echo "  -t, --type <standard|payload|config|all>   Benchmark type (default: interactive)"
             echo "  --no-build                          Skip build step"
             echo "  -h, --help                          Show this help message"
             exit 0
@@ -85,10 +91,59 @@ if [ ! -f "$EXE_PATH" ]; then
     exit 1
 fi
 
+# Handle interactive mode if no type specified
+if [ -z "$BENCHMARK_TYPE" ]; then
+    echo
+    echo -e "${CYAN}Select benchmark type to run:${NC}"
+    echo "  1. Standard benchmarks (various operations with different record counts)"
+    echo "  2. Payload size benchmarks (test with different data sizes)"
+    echo "  3. Configuration benchmarks (test different SQLite settings)"
+    echo "  4. All benchmarks"
+    echo
+    read -p "Enter your choice (1-4): " choice
+    
+    case $choice in
+        1)
+            BENCHMARK_TYPE="standard"
+            ;;
+        2)
+            BENCHMARK_TYPE="payload"
+            ;;
+        3)
+            BENCHMARK_TYPE="config"
+            ;;
+        4)
+            BENCHMARK_TYPE="all"
+            ;;
+        *)
+            echo -e "${RED}Invalid selection. Please run again and choose 1, 2, 3, or 4.${NC}"
+            exit 1
+            ;;
+    esac
+    
+    echo
+    echo -e "${GREEN}Running ${BENCHMARK_TYPE} benchmarks...${NC}"
+fi
+
 # Prepare benchmark arguments
 BENCHMARK_ARGS=""
+
+# Add benchmark type argument
+case $BENCHMARK_TYPE in
+    payload)
+        BENCHMARK_ARGS="--payload"
+        ;;
+    config)
+        BENCHMARK_ARGS="--config"
+        ;;
+    all)
+        BENCHMARK_ARGS="--all"
+        ;;
+    # standard requires no additional argument
+esac
+
 if [ "$FILTER" != "*" ]; then
-    BENCHMARK_ARGS="--filter $FILTER"
+    BENCHMARK_ARGS="$BENCHMARK_ARGS --filter $FILTER"
 fi
 
 # Create results directory

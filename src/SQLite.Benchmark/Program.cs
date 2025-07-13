@@ -26,11 +26,17 @@ namespace SQLite.Benchmark
                 Log.Information("Running Payload Size Benchmarks");
                 var summary = BenchmarkRunner.Run<PayloadSizeBenchmarks>();
             }
+            else if (args.Length > 0 && args[0] == "--config")
+            {
+                Log.Information("Running SQLite Configuration Benchmarks");
+                var summary = BenchmarkRunner.Run<SqliteConfigurationBenchmarks>();
+            }
             else if (args.Length > 0 && args[0] == "--all")
             {
                 Log.Information("Running All Benchmarks");
                 BenchmarkRunner.Run<SqliteProviderBenchmarks>();
                 BenchmarkRunner.Run<PayloadSizeBenchmarks>();
+                BenchmarkRunner.Run<SqliteConfigurationBenchmarks>();
             }
             else
             {
@@ -38,6 +44,7 @@ namespace SQLite.Benchmark
                 var summary = BenchmarkRunner.Run<SqliteProviderBenchmarks>();
                 Log.Information("");
                 Log.Information("Tip: Use --payload to run payload size benchmarks");
+                Log.Information("     Use --config to run configuration benchmarks");
                 Log.Information("     Use --all to run all benchmark suites");
             }
 

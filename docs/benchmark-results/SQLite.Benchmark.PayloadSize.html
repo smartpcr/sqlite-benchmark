@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>SQLite.Benchmark.PayloadSizeBenchmarks-20250713-134620</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet=v0.13.5, OS=Windows 11 (10.0.26100.4652)
+AMD Ryzen 9 7900X, 1 CPU, 24 logical and 12 physical cores
+  [Host]     : .NET Framework 4.8.1 (4.8.9310.0), X64 RyuJIT VectorSize=256
+  Job-VDMWCK : .NET Framework 4.8.1 (4.8.9310.0), X64 RyuJIT VectorSize=256
+</code></pre>
+<pre><code>InvocationCount=1  IterationCount=5  UnrollFactor=1  
+WarmupCount=2  
+</code></pre>
+
+<table>
+<thead><tr><th>     Method</th><th>Size</th><th>           Mean</th><th>        Error</th><th>      StdDev</th><th>         Median</th><th>Allocated</th>
+</tr>
+</thead><tbody><tr><td>Insert</td><td>ExtraSmall</td><td>11,514,050.0000 ns</td><td>4,849,728.8385 ns</td><td>750,500.9061 ns</td><td>11,569,500.0000 ns</td><td>73728 B</td>
+</tr><tr><td>BatchInsert</td><td>ExtraSmall</td><td>11,861,820.0000 ns</td><td>1,199,828.7465 ns</td><td>311,591.7152 ns</td><td>11,792,700.0000 ns</td><td>73728 B</td>
+</tr><tr><td>Select</td><td>ExtraSmall</td><td>840.0000 ns</td><td>439.0410 ns</td><td>114.0175 ns</td><td>800.0000 ns</td><td>-</td>
+</tr><tr><td>Update</td><td>ExtraSmall</td><td>700.0000 ns</td><td>1,902.3581 ns</td><td>294.3920 ns</td><td>700.0000 ns</td><td>-</td>
+</tr><tr><td>Delete</td><td>ExtraSmall</td><td>0.0000 ns</td><td>0.0000 ns</td><td>0.0000 ns</td><td>0.0000 ns</td><td>-</td>
+</tr><tr><td>TransactionInsert</td><td>ExtraSmall</td><td>10,451,240.0000 ns</td><td>1,189,707.8251 ns</td><td>308,963.3441 ns</td><td>10,496,700.0000 ns</td><td>81920 B</td>
+</tr><tr><td>SelectMultiple</td><td>ExtraSmall</td><td>1,374,727,460.0000 ns</td><td>154,820,679.5164 ns</td><td>40,206,438.8158 ns</td><td>1,372,914,300.0000 ns</td><td>2957040008 B</td>
+</tr><tr><td>Insert</td><td>Small</td><td>21,450,060.0000 ns</td><td>3,840,721.5953 ns</td><td>997,423.2016 ns</td><td>21,603,700.0000 ns</td><td>81920 B</td>
+</tr><tr><td>BatchInsert</td><td>Small</td><td>10,452,850.0000 ns</td><td>1,108,075.5419 ns</td><td>171,475.9167 ns</td><td>10,489,900.0000 ns</td><td>106496 B</td>
+</tr><tr><td>Select</td><td>Small</td><td>1,000.0000 ns</td><td>943.2113 ns</td><td>244.9490 ns</td><td>900.0000 ns</td><td>-</td>
+</tr><tr><td>Update</td><td>Small</td><td>275.0000 ns</td><td>618.6884 ns</td><td>95.7427 ns</td><td>250.0000 ns</td><td>-</td>
+</tr><tr><td>Delete</td><td>Small</td><td>80.0000 ns</td><td>322.1680 ns</td><td>83.6660 ns</td><td>100.0000 ns</td><td>-</td>
+</tr><tr><td>TransactionInsert</td><td>Small</td><td>18,782,460.0000 ns</td><td>11,984,681.4517 ns</td><td>3,112,383.7140 ns</td><td>19,889,300.0000 ns</td><td>106496 B</td>
+</tr><tr><td>SelectMultiple</td><td>Small</td><td>1,342,507,850.0000 ns</td><td>90,032,675.2449 ns</td><td>13,932,656.1539 ns</td><td>1,340,971,100.0000 ns</td><td>2957040008 B</td>
+</tr><tr><td>Insert</td><td>Medium</td><td>23,443,560.0000 ns</td><td>42,924,227.7351 ns</td><td>11,147,285.6310 ns</td><td>18,991,300.0000 ns</td><td>601184 B</td>
+</tr><tr><td>BatchInsert</td><td>Medium</td><td>21,251,475.0000 ns</td><td>7,660,312.0712 ns</td><td>1,185,441.7724 ns</td><td>21,579,100.0000 ns</td><td>2711008 B</td>
+</tr><tr><td>Select</td><td>Medium</td><td>1,694,560.0000 ns</td><td>635,973.4867 ns</td><td>165,160.2949 ns</td><td>1,709,000.0000 ns</td><td>1101856 B</td>
+</tr><tr><td>Update</td><td>Medium</td><td>12,051,675.0000 ns</td><td>1,313,630.7639 ns</td><td>203,285.8148 ns</td><td>12,105,950.0000 ns</td><td>1686680 B</td>
+</tr><tr><td>Delete</td><td>Medium</td><td>1,679,960.0000 ns</td><td>804,798.3346 ns</td><td>209,003.5717 ns</td><td>1,620,800.0000 ns</td><td>65536 B</td>
+</tr><tr><td>TransactionInsert</td><td>Medium</td><td>13,140,980.0000 ns</td><td>3,049,090.7674 ns</td><td>791,839.1895 ns</td><td>12,876,100.0000 ns</td><td>1664288 B</td>
+</tr><tr><td>SelectMultiple</td><td>Medium</td><td>1,406,283,300.0000 ns</td><td>118,259,271.5498 ns</td><td>30,711,557.2727 ns</td><td>1,406,429,400.0000 ns</td><td>2957040008 B</td>
+</tr><tr><td>Insert</td><td>Large</td><td>65,581,000.0000 ns</td><td>127,109,959.9805 ns</td><td>19,670,407.0087 ns</td><td>57,641,900.0000 ns</td><td>26303584 B</td>
+</tr><tr><td>BatchInsert</td><td>Large</td><td>243,688,780.0000 ns</td><td>115,883,296.4547 ns</td><td>30,094,524.0857 ns</td><td>244,181,400.0000 ns</td><td>131223008 B</td>
+</tr><tr><td>Select</td><td>Large</td><td>19,062,480.0000 ns</td><td>6,285,046.7022 ns</td><td>1,632,206.6695 ns</td><td>18,150,400.0000 ns</td><td>59834544 B</td>
+</tr><tr><td>Update</td><td>Large</td><td>54,048,975.0000 ns</td><td>8,583,850.6110 ns</td><td>1,328,360.3838 ns</td><td>54,107,400.0000 ns</td><td>86121768 B</td>
+</tr><tr><td>Delete</td><td>Large</td><td>1,327,950.0000 ns</td><td>253,505.7984 ns</td><td>39,230.3029 ns</td><td>1,339,950.0000 ns</td><td>65536 B</td>
+</tr><tr><td>TransactionInsert</td><td>Large</td><td>120,111,975.0000 ns</td><td>14,230,022.9730 ns</td><td>2,202,111.8067 ns</td><td>119,491,850.0000 ns</td><td>78771488 B</td>
+</tr><tr><td>SelectMultiple</td><td>Large</td><td>1,091,462,900.0000 ns</td><td>61,286,311.5124 ns</td><td>9,484,124.5461 ns</td><td>1,095,923,050.0000 ns</td><td>2957040000 B</td>
+</tr><tr><td>Insert</td><td>ExtraLarge</td><td>403,595,860.0000 ns</td><td>31,685,015.8399 ns</td><td>8,228,497.9934 ns</td><td>403,831,400.0000 ns</td><td>262233232 B</td>
+</tr><tr><td>BatchInsert</td><td>ExtraLarge</td><td>2,021,072,525.0000 ns</td><td>181,902,605.5689 ns</td><td>28,149,629.5650 ns</td><td>2,011,313,700.0000 ns</td><td>1310871248 B</td>
+</tr><tr><td>Select</td><td>ExtraLarge</td><td>169,243,800.0000 ns</td><td>25,519,208.8317 ns</td><td>3,949,125.8147 ns</td><td>167,908,850.0000 ns</td><td>530645272 B</td>
+</tr><tr><td>Update</td><td>ExtraLarge</td><td>387,588,850.0000 ns</td><td>50,951,880.2744 ns</td><td>7,884,859.8726 ns</td><td>391,109,600.0000 ns</td><td>792862120 B</td>
+</tr><tr><td>Delete</td><td>ExtraLarge</td><td>1,346,525.0000 ns</td><td>511,174.9084 ns</td><td>79,104.8829 ns</td><td>1,331,050.0000 ns</td><td>65536 B</td>
+</tr><tr><td>TransactionInsert</td><td>ExtraLarge</td><td>1,146,242,425.0000 ns</td><td>50,682,667.9091 ns</td><td>7,843,198.9610 ns</td><td>1,147,020,050.0000 ns</td><td>786560432 B</td>
+</tr><tr><td>SelectMultiple</td><td>ExtraLarge</td><td>1,146,523,740.0000 ns</td><td>101,708,533.8895 ns</td><td>26,413,383.2615 ns</td><td>1,142,519,000.0000 ns</td><td>2957040008 B</td>
+</tr></tbody></table>
+</body>
+</html>

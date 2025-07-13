@@ -26,8 +26,8 @@ param(
     
     [switch]$NoBuild,
     
-    [ValidateSet('Standard', 'Payload', 'All')]
-    [string]$BenchmarkType = 'Standard'
+    [ValidateSet('Standard', 'Payload', 'Config', 'All', 'Interactive')]
+    [string]$BenchmarkType = 'Interactive'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -77,6 +77,33 @@ if (-not (Test-Path $exePath)) {
     exit 1
 }
 
+# Handle interactive mode
+if ($BenchmarkType -eq 'Interactive') {
+    Write-Host ""
+    Write-Host "Select benchmark type to run:" -ForegroundColor Cyan
+    Write-Host "  1. Standard benchmarks (various operations with different record counts)" -ForegroundColor Gray
+    Write-Host "  2. Payload size benchmarks (test with different data sizes)" -ForegroundColor Gray
+    Write-Host "  3. Configuration benchmarks (test different SQLite settings)" -ForegroundColor Gray
+    Write-Host "  4. All benchmarks" -ForegroundColor Gray
+    Write-Host ""
+    
+    $selection = Read-Host "Enter your choice (1-4)"
+    
+    switch ($selection) {
+        '1' { $BenchmarkType = 'Standard' }
+        '2' { $BenchmarkType = 'Payload' }
+        '3' { $BenchmarkType = 'Config' }
+        '4' { $BenchmarkType = 'All' }
+        default {
+            Write-Error "Invalid selection. Please run again and choose 1, 2, 3, or 4."
+            exit 1
+        }
+    }
+    
+    Write-Host ""
+    Write-Host "Running $BenchmarkType benchmarks..." -ForegroundColor Green
+}
+
 # Prepare benchmark arguments
 $benchmarkArgs = @()
 
@@ -84,6 +111,9 @@ $benchmarkArgs = @()
 switch ($BenchmarkType) {
     'Payload' {
         $benchmarkArgs += '--payload'
+    }
+    'Config' {
+        $benchmarkArgs += '--config'
     }
     'All' {
         $benchmarkArgs += '--all'

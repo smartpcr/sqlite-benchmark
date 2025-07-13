@@ -11,19 +11,27 @@ This project includes comprehensive benchmarks for the SQLite provider implement
 .\run-benchmark.ps1
 ```
 
+When run without parameters, it will prompt you to select the benchmark type interactively.
+
 Options:
 - `-Configuration <Debug|Release>` - Build configuration (default: Release)
 - `-Filter <pattern>` - Filter specific benchmarks (e.g., `"*Insert*"`)
 - `-NoBuild` - Skip build step
-- `-BenchmarkType <Standard|Payload|All>` - Choose benchmark suite (default: Standard)
+- `-BenchmarkType <Standard|Payload|Config|All|Interactive>` - Choose benchmark suite (default: Interactive)
 
 Examples:
 ```powershell
-# Run standard benchmarks
+# Interactive mode - prompts for benchmark type
 .\run-benchmark.ps1
+
+# Run standard benchmarks directly
+.\run-benchmark.ps1 -BenchmarkType Standard
 
 # Run payload size benchmarks
 .\run-benchmark.ps1 -BenchmarkType Payload
+
+# Run configuration benchmarks
+.\run-benchmark.ps1 -BenchmarkType Config
 
 # Run all benchmark suites
 .\run-benchmark.ps1 -BenchmarkType All
@@ -31,13 +39,23 @@ Examples:
 # Run only insert benchmarks
 .\run-benchmark.ps1 -Filter "*Insert*"
 
+# Run payload benchmarks with filter
+.\run-benchmark.ps1 -BenchmarkType Payload -Filter "*Insert*"
+
 # Run in Debug mode
 .\run-benchmark.ps1 -Configuration Debug
 ```
 
 #### Command Prompt
 ```cmd
+REM Interactive mode - prompts for benchmark type
 run-benchmark.cmd
+
+REM Run specific benchmark type
+run-benchmark.cmd standard
+run-benchmark.cmd payload
+run-benchmark.cmd config
+run-benchmark.cmd all
 ```
 
 ### Linux/Mac
@@ -46,18 +64,36 @@ run-benchmark.cmd
 ./run-benchmark.sh
 ```
 
+When run without parameters, it will prompt you to select the benchmark type interactively.
+
 Options:
 - `-c, --configuration <Debug|Release>` - Build configuration (default: Release)
 - `-f, --filter <pattern>` - Filter specific benchmarks
+- `-t, --type <standard|payload|config|all>` - Benchmark type (default: interactive)
 - `--no-build` - Skip build step
 
 Examples:
 ```bash
-# Run all benchmarks
+# Interactive mode - prompts for benchmark type
 ./run-benchmark.sh
+
+# Run standard benchmarks directly
+./run-benchmark.sh -t standard
+
+# Run payload size benchmarks
+./run-benchmark.sh -t payload
+
+# Run configuration benchmarks
+./run-benchmark.sh -t config
+
+# Run all benchmarks
+./run-benchmark.sh -t all
 
 # Run only insert benchmarks
 ./run-benchmark.sh -f "*Insert*"
+
+# Run payload benchmarks with filter
+./run-benchmark.sh -t payload -f "*Insert*"
 
 # Run without building
 ./run-benchmark.sh --no-build
@@ -110,6 +146,39 @@ Tests SQLite performance with different data sizes:
 - **ExtraLarge**: 50 MB
 
 Note: Large payload benchmarks (5 MB and 50 MB) may take significant time and memory.
+
+### Configuration Benchmarks (`SqliteConfigurationBenchmarks`)
+
+Tests SQLite performance with different configuration settings:
+
+#### Operations
+- **SequentialInserts** - Sequential insert operations
+- **BatchInsertWithTransaction** - Batch inserts within a transaction
+- **SequentialReads** - Sequential read operations by ID
+- **BulkRead** - Read all records
+- **FilteredRead** - Read with filtering conditions
+- **MixedOperations** - Mix of CRUD operations
+- **ConcurrentOperations** - Concurrent read/write operations
+- **ComplexJsonQuery** - Complex JSON-based queries
+
+#### Configuration Parameters
+- **CacheSize**: [1KB, 4KB, 1MB, 4MB] - SQLite page cache size
+- **PageSize**: [1KB, 4KB] - Database page size
+- **JournalMode**: [WAL, DELETE, MEMORY] - Journal mode for transactions
+- **SynchronousMode**: [OFF, NORMAL, FULL] - Synchronization level
+- **BusyTimeout**: [100ms, 5s, 30s] - Timeout for locked database
+- **EnableForeignKeys**: [true, false] - Foreign key constraint enforcement
+
+## Benchmark Results
+
+Pre-run benchmark results are available in the [docs/benchmark-results](docs/benchmark-results) directory:
+
+### Available Results
+- [Payload Size Benchmark Results (HTML)](docs/benchmark-results/SQLite.Benchmark.PayloadSize.Report.html)
+- [Payload Size Benchmark Results (Markdown)](docs/benchmark-results/SQLite.Benchmark.PayloadSize.md)
+- [Payload Size Benchmark Results (CSV)](docs/benchmark-results/SQLite.Benchmark.PayloadSize.csv)
+- [Extra Small Payload Results (HTML)](docs/benchmark-results/SQLite.Benchmark.Basic.Report.ExtraSmall.html)
+- [Extra Small Payload Results (Markdown)](docs/benchmark-results/SQLite.Benchmark.Basic.ExtraSmall.md)
 
 ## Understanding Results
 

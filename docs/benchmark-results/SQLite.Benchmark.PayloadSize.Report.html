@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQLite Performance by Payload Size</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+        
+        .payload-info {
+            background: linear-gradient(135deg, #e8f4fd, #f0f8ff);
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin-bottom: 30px;
+            border-radius: 10px;
+        }
+        
+        .payload-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .payload-item {
+            text-align: center;
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .payload-size {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .payload-desc {
+            font-size: 0.9em;
+            color: #666;
+        }
+        
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transform: translateY(0);
+            transition: transform 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .stat-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            font-size: 0.85em;
+            opacity: 0.9;
+        }
+        
+        .chart-section {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+        
+        .chart-section:hover {
+            transform: translateY(-2px);
+        }
+        
+        .chart-title {
+            font-size: 1.3em;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #2c3e50;
+            text-align: center;
+        }
+        
+        .scaling-chart {
+            height: 400px;
+            position: relative;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            background: #fafafa;
+            margin-bottom: 20px;
+        }
+        
+        .performance-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .performance-table th {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 15px 10px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 0.9em;
+        }
+        
+        .performance-table td {
+            padding: 12px 8px;
+            text-align: center;
+            border-bottom: 1px solid #eee;
+            font-size: 0.85em;
+        }
+        
+        .performance-table tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+        
+        .performance-table tr:hover {
+            background: #e8f4fd;
+        }
+        
+        .method-cell {
+            font-weight: 600;
+            color: #667eea;
+        }
+        
+        .size-header {
+            writing-mode: vertical-lr;
+            text-orientation: mixed;
+            padding: 10px 5px !important;
+        }
+        
+        .insights-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+            margin-top: 25px;
+        }
+        
+        .insights-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .insights-title {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 5px;
+        }
+        
+        .insight-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .insight-item:last-child {
+            border-bottom: none;
+        }
+        
+        .insight-method {
+            font-weight: 600;
+            color: #555;
+        }
+        
+        .insight-value {
+            font-family: 'Courier New', monospace;
+            font-weight: 600;
+            color: #667eea;
+        }
+        
+        .warning-box {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+            font-weight: 600;
+        }
+        
+        .memory-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-left: 5px;
+        }
+        
+        .low-memory { background: #4caf50; }
+        .medium-memory { background: #ff9800; }
+        .high-memory { background: #f44336; }
+        
+        @media (max-width: 768px) {
+            .insights-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .container {
+                padding: 20px;
+            }
+            
+            h1 {
+                font-size: 2em;
+            }
+            
+            .performance-table {
+                font-size: 0.75em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>SQLite Performance by Payload Size</h1>
+        <div class="subtitle">Comprehensive Analysis of Operation Performance Across Different Data Sizes</div>
+        
+        <!-- Payload Size Information -->
+        <div class="payload-info">
+            <h3 style="margin-top: 0; color: #667eea;">Payload Size Categories</h3>
+            <div class="payload-grid">
+                <div class="payload-item">
+                    <div class="payload-size">ExtraSmall</div>
+                    <div class="payload-desc">~100 bytes</div>
+                </div>
+                <div class="payload-item">
+                    <div class="payload-size">Small</div>
+                    <div class="payload-desc">~1 KB</div>
+                </div>
+                <div class="payload-item">
+                    <div class="payload-size">Medium</div>
+                    <div class="payload-desc">~10 KB</div>
+                </div>
+                <div class="payload-item">
+                    <div class="payload-size">Large</div>
+                    <div class="payload-desc">~100 KB</div>
+                </div>
+                <div class="payload-item">
+                    <div class="payload-size">ExtraLarge</div>
+                    <div class="payload-desc">~1 MB</div>
+                </div>
+            </div>
+            <div style="text-align: center; margin-top: 15px; color: #666; font-style: italic;">
+                Testing shows dramatic performance degradation as payload size increases
+            </div>
+        </div>
+        
+        <!-- Summary Statistics -->
+        <div class="summary-stats">
+            <div class="stat-card">
+                <div class="stat-value">35.1x</div>
+                <div class="stat-label">Insert Scaling Factor</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">193.4x</div>
+                <div class="stat-label">BatchInsert Scaling</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">201,481x</div>
+                <div class="stat-label">Select Scaling</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">2.02 sec</div>
+                <div class="stat-label">Worst Case (BatchInsert XL)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">0.84 μs</div>
+                <div class="stat-label">Best Case (Select XS)</div>
+            </div>
+        </div>
+        
+        <!-- Performance Scaling Chart -->
+        <div class="chart-section">
+            <div class="chart-title">Performance Scaling by Payload Size (Logarithmic Scale)</div>
+            <div class="scaling-chart">
+                <svg width="100%" height="100%" viewBox="0 0 900 380" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Background grid -->
+                    <defs>
+                        <pattern id="grid" width="90" height="38" patternUnits="userSpaceOnUse">
+                            <path d="M 90 0 L 0 0 0 38" fill="none" stroke="#e8e8e8" stroke-width="1"/>
+                        </pattern>
+                        <linearGradient id="insertGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" style="stop-color:#667eea;stop-opacity:0.3" />
+                            <stop offset="100%" style="stop-color:#667eea;stop-opacity:0.1" />
+                        </linearGradient>
+                    </defs>
+                    <rect width="900" height="380" fill="url(#grid)" />
+                    
+                    <!-- Axes -->
+                    <line x1="80" y1="340" x2="820" y2="340" stroke="#333" stroke-width="2"/>
+                    <line x1="80" y1="340" x2="80" y2="40" stroke="#333" stroke-width="2"/>
+                    
+                    <!-- X-axis labels (payload sizes) -->
+                    <text x="150" y="360" text-anchor="middle" font-size="12" font-weight="bold">XS</text>
+                    <text x="280" y="360" text-anchor="middle" font-size="12" font-weight="bold">S</text>
+                    <text x="410" y="360" text-anchor="middle" font-size="12" font-weight="bold">M</text>
+                    <text x="540" y="360" text-anchor="middle" font-size="12" font-weight="bold">L</text>
+                    <text x="670" y="360" text-anchor="middle" font-size="12" font-weight="bold">XL</text>
+                    <text x="450" y="375" text-anchor="middle" font-size="14" font-weight="bold">Payload Size</text>
+                    
+                    <!-- Y-axis labels (logarithmic scale) -->
+                    <text x="70" y="345" text-anchor="end" font-size="11">0.001ms</text>
+                    <text x="70" y="300" text-anchor="end" font-size="11">0.01ms</text>
+                    <text x="70" y="250" text-anchor="end" font-size="11">0.1ms</text>
+                    <text x="70" y="200" text-anchor="end" font-size="11">1ms</text>
+                    <text x="70" y="150" text-anchor="end" font-size="11">10ms</text>
+                    <text x="70" y="100" text-anchor="end" font-size="11">100ms</text>
+                    <text x="70" y="50" text-anchor="end" font-size="11">1000ms</text>
+                    <text x="30" y="190" text-anchor="middle" font-size="14" font-weight="bold" transform="rotate(-90 30 190)">Time (Log Scale)</text>
+                    
+                    <!-- Performance lines (logarithmic scale) -->
+                    
+                    <!-- Select line (very fast, stays low until large sizes) -->
+                    <polyline points="150,330 280,330 410,250 540,150 670,100" 
+                              fill="none" stroke="#4caf50" stroke-width="4" opacity="0.8"/>
+                    <circle cx="150" cy="330" r="5" fill="#4caf50"/>
+                    <circle cx="280" cy="330" r="5" fill="#4caf50"/>
+                    <circle cx="410" cy="250" r="5" fill="#4caf50"/>
+                    <circle cx="540" cy="150" r="5" fill="#4caf50"/>
+                    <circle cx="670" cy="100" r="5" fill="#4caf50"/>
+                    
+                    <!-- Update line (fast for small, degrades quickly) -->
+                    <polyline points="150,330 280,330 410,200 540,120 670,80" 
+                              fill="none" stroke="#ff9800" stroke-width="4" opacity="0.8"/>
+                    <circle cx="150" cy="330" r="5" fill="#ff9800"/>
+                    <circle cx="280" cy="330" r="5" fill="#ff9800"/>
+                    <circle cx="410" cy="200" r="5" fill="#ff9800"/>
+                    <circle cx="540" cy="120" r="5" fill="#ff9800"/>
+                    <circle cx="670" cy="80" r="5" fill="#ff9800"/>
+                    
+                    <!-- Insert line (moderate scaling) -->
+                    <polyline points="150,200 280,180 410,170 540,140 670,70" 
+                              fill="none" stroke="#667eea" stroke-width="4" opacity="0.8"/>
+                    <circle cx="150" cy="200" r="5" fill="#667eea"/>
+                    <circle cx="280" cy="180" r="5" fill="#667eea"/>
+                    <circle cx="410" cy="170" r="5" fill="#667eea"/>
+                    <circle cx="540" cy="140" r="5" fill="#667eea"/>
+                    <circle cx="670" cy="70" r="5" fill="#667eea"/>
+                    
+                    <!-- BatchInsert line (good for small, terrible for large) -->
+                    <polyline points="150,200 280,200 410,180 540,90 670,50" 
+                              fill="none" stroke="#e91e63" stroke-width="4" opacity="0.8"/>
+                    <circle cx="150" cy="200" r="5" fill="#e91e63"/>
+                    <circle cx="280" cy="200" r="5" fill="#e91e63"/>
+                    <circle cx="410" cy="180" r="5" fill="#e91e63"/>
+                    <circle cx="540" cy="90" r="5" fill="#e91e63"/>
+                    <circle cx="670" cy="50" r="5" fill="#e91e63"/>
+                    
+                    <!-- TransactionInsert line (similar to insert but slightly worse) -->
+                    <polyline points="150,200 280,185 410,190 540,110 670,55" 
+                              fill="none" stroke="#9c27b0" stroke-width="4" opacity="0.8"/>
+                    <circle cx="150" cy="200" r="5" fill="#9c27b0"/>
+                    <circle cx="280" cy="185" r="5" fill="#9c27b0"/>
+                    <circle cx="410" cy="190" r="5" fill="#9c27b0"/>
+                    <circle cx="540" cy="110" r="5" fill="#9c27b0"/>
+                    <circle cx="670" cy="55" r="5" fill="#9c27b0"/>
+                    
+                    <!-- Delete line (consistently fast) -->
+                    <polyline points="150,340 280,335 410,250 540,250 670,250" 
+                              fill="none" stroke="#607d8b" stroke-width="3" opacity="0.8" stroke-dasharray="5,5"/>
+                    
+                    <!-- Legend -->
+                    <rect x="680" y="60" width="200" height="140" fill="white" stroke="#ddd" stroke-width="1" rx="8" opacity="0.95"/>
+                    <text x="690" y="80" font-size="14" font-weight="bold">Operations</text>
+                    
+                    <line x1="695" y1="95" x2="715" y2="95" stroke="#4caf50" stroke-width="4"/>
+                    <text x="720" y="99" font-size="12">Select</text>
+                    
+                    <line x1="695" y1="110" x2="715" y2="110" stroke="#ff9800" stroke-width="4"/>
+                    <text x="720" y="114" font-size="12">Update</text>
+                    
+                    <line x1="695" y1="125" x2="715" y2="125" stroke="#667eea" stroke-width="4"/>
+                    <text x="720" y="129" font-size="12">Insert</text>
+                    
+                    <line x1="695" y1="140" x2="715" y2="140" stroke="#e91e63" stroke-width="4"/>
+                    <text x="720" y="144" font-size="12">BatchInsert</text>
+                    
+                    <line x1="695" y1="155" x2="715" y2="155" stroke="#9c27b0" stroke-width="4"/>
+                    <text x="720" y="159" font-size="12">TransactionInsert</text>
+                    
+                    <line x1="695" y1="170" x2="715" y2="170" stroke="#607d8b" stroke-width="3" stroke-dasharray="3,3"/>
+                    <text x="720" y="174" font-size="12">Delete</text>
+                </svg>
+            </div>
+            <div class="warning-box">
+                ⚠️ Critical Finding: BatchInsert performance degrades catastrophically for large payloads (193x slower)
+            </div>
+        </div>
+        
+        <!-- Detailed Performance Table -->
+        <div class="chart-section">
+            <div class="chart-title">Detailed Performance Matrix (milliseconds)</div>
+            <table class="performance-table">
+                <thead>
+                    <tr>
+                        <th>Operation</th>
+                        <th class="size-header">ExtraSmall<br>(~100B)</th>
+                        <th class="size-header">Small<br>(~1KB)</th>
+                        <th class="size-header">Medium<br>(~10KB)</th>
+                        <th class="size-header">Large<br>(~100KB)</th>
+                        <th class="size-header">ExtraLarge<br>(~1MB)</th>
+                        <th>Scaling Factor</th>
+                        <th>Memory Impact</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="method-cell">Insert</td>
+                        <td>11.51</td>
+                        <td>21.45</td>
+                        <td>23.44</td>
+                        <td>65.58</td>
+                        <td>403.60</td>
+                        <td><strong>35.1x</strong></td>
+                        <td><span class="memory-indicator high-memory"></span> High</td>
+                    </tr>
+                    <tr>
+                        <td class="method-cell">BatchInsert</td>
+                        <td>11.86</td>
+                        <td>10.45</td>
+                        <td>21.25</td>
+                        <td>243.69</td>
+                        <td><strong style="color: #f44336;">2,021.07</strong></td>
+                        <td><strong style="color: #f44336;">193.4x</strong></td>
+                        <td><span class="memory-indicator high-memory"></span> Very High</td>
+                    </tr>
+                    <tr>
+                        <td class="method-cell">Select</td>
+                        <td>0.0008</td>
+                        <td>0.001</td>
+                        <td>1.69</td>
+                        <td>19.06</td>
+                        <td>169.24</td>
+                        <td><strong style="color: #f44336;">201,481x</strong></td>
+                        <td><span class="memory-indicator high-memory"></span> Very High</td>
+                    </tr>
+                    <tr>
+                        <td class="method-cell">Update</td>
+                        <td>0.0007</td>
+                        <td>0.0003</td>
+                        <td>12.05</td>
+                        <td>54.05</td>
+                        <td>387.59</td>
+                        <td><strong style="color: #f44336;">1.4M x</strong></td>
+                        <td><span class="memory-indicator high-memory"></span> Very High</td>
+                    </tr>
+                    <tr>
+                        <td class="method-cell">Delete</td>
+                        <td>0.000</td>
+                        <td>0.00008</td>
+                        <td>1.68</td>
+                        <td>1.33</td>
+                        <td>1.35</td>
+                        <td><strong style="color: #4caf50;">Stable</strong></td>
+                        <td><span class="memory-indicator low-memory"></span> Low</td>
+                    </tr>
+                    <tr>
+                        <td class="method-cell">TransactionInsert</td>
+                        <td>10.45</td>
+                        <td>18.78</td>
+                        <td>13.14</td>
+                        <td>120.11</td>
+                        <td>1,146.24</td>
+                        <td><strong>109.7x</strong></td>
+                        <td><span class="memory-indicator high-memory"></span> High</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Insights -->
+        <div class="insights-grid">
+            <div class="insights-card">
+                <div class="insights-title">🎯 Key Performance Insights</div>
+                <div class="insight-item">
+                    <span class="insight-method">Best for Small Data:</span>
+                    <span class="insight-value">Delete (stable)</span>
+                </div>
+                <div class="insight-item">
+                    <span class="insight-method">Worst Scaling:</span>
+                    <span class="insight-value">Update (1.4M x)</span>
+                </div>
+                <div class="insight-item">
+                    <span class="insight-method">Batch Efficiency Limit:</span>
+                    <span class="insight-value">~10KB payload</span>
+                </div>
+                <div class="insight-item">
+                    <span class="insight-method">Critical Threshold:</span>
+                    <span class="insight-value">100KB+ payloads</span>
+                </div>
+                <div class="insight-item">
+                    <span class="insight-method">Memory Explosion:</span>
+                    <span class="insight-value">1.25GB for XL batch</span>
+                </div>
+            </div>
+            
+            <div class="insights-card">
+                <div class="insights-title">💡 Optimization Recommendations</div>
+                <div style="line-height: 1.6; color: #555; font-size: 0.95em;">
+                    <p><strong>• Payload Size Limits:</strong> Keep individual records under 10KB for optimal performance</p>
+                    <p><strong>• Avoid Large Batches:</strong> BatchInsert becomes inefficient beyond 100KB total payload</p>
+                    <p><strong>• Use Streaming:</strong> For large data, implement streaming inserts instead of batching</p>
+                    <p><strong>• Delete is Optimal:</strong> Delete operations scale best across all payload sizes</p>
+                    <p><strong>• Select Degradation:</strong> Large record selection shows extreme performance impact</p>
+                    <p><strong>• Memory Monitoring:</strong> Monitor memory usage carefully with payloads > 100KB</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Runtime Information -->
+        <div style="text-align: center; margin-top: 30px; padding: 15px; background: #f8f9fa; border-radius: 10px; color: #666;">
+            <strong>Test Environment:</strong> .NET Framework 4.6.2 • x64 Platform • System.Data.SQLite
+        </div>
+    </div>
+</body>
+</html>
