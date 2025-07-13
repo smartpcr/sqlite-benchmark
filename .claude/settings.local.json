@@ -9,7 +9,8 @@
       "Bash(find:*)",
       "Bash(dotnet build:*)",
       "Bash(dos2unix:*)",
-      "Bash(true)"
+      "Bash(true)",
+      "Bash(chmod:*)"
     ],
     "deny": []
   }

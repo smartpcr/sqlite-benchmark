@@ -4,16 +4,18 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Columns;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Diagnosers;
 using BenchmarkDotNet.Jobs;
+using BenchmarkDotNet.Loggers;
+using BenchmarkDotNet.Reports;
 using SQLite.Lib;
 
 namespace SQLite.Benchmark
 {
     [Config(typeof(BenchmarkConfig))]
     [MemoryDiagnoser]
-    [ThreadingDiagnoser]
     public class SqliteProviderBenchmarks
     {
         private SqliteProvider<BenchmarkEntity> _provider = null!;
@@ -218,7 +220,15 @@ namespace SQLite.Benchmark
                 .WithIterationCount(10));
 
             AddDiagnoser(MemoryDiagnoser.Default);
-            AddDiagnoser(ThreadingDiagnoser.Default);
+            
+            // Add column providers for better output
+            AddColumnProvider(DefaultColumnProviders.Instance);
+            
+            // Add loggers
+            AddLogger(ConsoleLogger.Default);
+            
+            // Set summary style
+            WithSummaryStyle(SummaryStyle.Default.WithRatioStyle(RatioStyle.Trend));
         }
     }
 }
