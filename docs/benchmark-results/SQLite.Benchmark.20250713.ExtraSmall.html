@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>SQLite.Benchmark.SqliteProviderBenchmarks-20250713-083711</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet=v0.13.5, OS=Windows 11 (10.0.26100.4652)
+AMD Ryzen 9 7900X, 1 CPU, 24 logical and 12 physical cores
+  [Host]     : .NET Framework 4.8.1 (4.8.9310.0), X64 RyuJIT VectorSize=256
+  Job-PRCREG : .NET Framework 4.8.1 (4.8.9310.0), X64 RyuJIT VectorSize=256
+</code></pre>
+<pre><code>IterationCount=10  WarmupCount=3  
+</code></pre>
+
+<table>
+<thead><tr><th>          Method</th><th>RecordCount</th><th>ThreadCount</th><th>       Mean</th><th>       Error</th><th>      StdDev</th><th>     Median</th><th> Gen0</th><th>Gen1</th><th>Gen2</th><th>Allocated</th>
+</tr>
+</thead><tbody><tr><td>SingleInsert</td><td>100</td><td>1</td><td>14,301,469.44 ns</td><td>6,560,417.294 ns</td><td>3,903,999.101 ns</td><td>13,553,940.63 ns</td><td>-</td><td>-</td><td>-</td><td>64256 B</td>
+</tr><tr><td>BatchInsert</td><td>100</td><td>1</td><td>19,533,791.80 ns</td><td>12,899,329.640 ns</td><td>6,746,598.822 ns</td><td>17,501,689.06 ns</td><td>31.2500</td><td>-</td><td>-</td><td>301570 B</td>
+</tr><tr><td>SingleSelect</td><td>100</td><td>1</td><td>2,602,701.61 ns</td><td>608,141.975 ns</td><td>318,070.012 ns</td><td>2,552,156.84 ns</td><td>7.8125</td><td>-</td><td>-</td><td>58978 B</td>
+</tr><tr><td>SelectAll</td><td>100</td><td>1</td><td>2,020,642.87 ns</td><td>180,127.167 ns</td><td>119,142.968 ns</td><td>2,052,566.50 ns</td><td>39.0625</td><td>1.9531</td><td>-</td><td>254755 B</td>
+</tr><tr><td>SelectWithFilter</td><td>100</td><td>1</td><td>2,290,117.11 ns</td><td>137,783.214 ns</td><td>91,135.065 ns</td><td>2,303,066.99 ns</td><td>41.0156</td><td>5.8594</td><td>-</td><td>262180 B</td>
+</tr><tr><td>SingleUpdate</td><td>100</td><td>1</td><td>18,356,646.35 ns</td><td>8,199,766.098 ns</td><td>4,879,549.279 ns</td><td>17,809,351.56 ns</td><td>31.2500</td><td>-</td><td>-</td><td>257905 B</td>
+</tr><tr><td>SingleDelete</td><td>100</td><td>1</td><td>13.30 ns</td><td>1.294 ns</td><td>0.770 ns</td><td>13.51 ns</td><td>0.0064</td><td>-</td><td>-</td><td>40 B</td>
+</tr><tr><td>CountAll</td><td>100</td><td>1</td><td>1,796,766.49 ns</td><td>278,865.161 ns</td><td>165,948.184 ns</td><td>1,727,058.98 ns</td><td>7.8125</td><td>-</td><td>-</td><td>60436 B</td>
+</tr><tr><td>TransactionBatchInsert</td><td>100</td><td>1</td><td>13,768,705.56 ns</td><td>7,320,513.566 ns</td><td>4,356,320.200 ns</td><td>11,547,728.13 ns</td><td>-</td><td>-</td><td>-</td><td>109568 B</td>
+</tr><tr><td>ConcurrentReads</td><td>100</td><td>1</td><td>18,664,296.09 ns</td><td>1,937,235.658 ns</td><td>1,013,211.707 ns</td><td>18,787,448.44 ns</td><td>375.0000</td><td>31.2500</td><td>-</td><td>2417170 B</td>
+</tr><tr><td>ConcurrentWrites</td><td>100</td><td>1</td><td>56,102,835.56 ns</td><td>8,237,758.398 ns</td><td>4,902,157.887 ns</td><td>56,187,240.00 ns</td><td>-</td><td>-</td><td>-</td><td>249037 B</td>
+</tr><tr><td>ComplexQuery</td><td>100</td><td>1</td><td>1,761,247.41 ns</td><td>274,677.986 ns</td><td>143,661.898 ns</td><td>1,792,415.92 ns</td><td>7.8125</td><td>-</td><td>-</td><td>55171 B</td>
+</tr><tr><td>SingleInsert</td><td>100</td><td>4</td><td>15,433,900.94 ns</td><td>8,512,546.015 ns</td><td>5,630,522.125 ns</td><td>13,400,281.25 ns</td><td>-</td><td>-</td><td>-</td><td>64256 B</td>
+</tr><tr><td>BatchInsert</td><td>100</td><td>4</td><td>16,454,149.61 ns</td><td>6,581,050.086 ns</td><td>3,442,016.445 ns</td><td>15,760,158.59 ns</td><td>46.8750</td><td>-</td><td>-</td><td>301835 B</td>
+</tr><tr><td>SingleSelect</td><td>100</td><td>4</td><td>1,878,688.43 ns</td><td>396,727.345 ns</td><td>236,086.080 ns</td><td>1,787,066.60 ns</td><td>7.8125</td><td>-</td><td>-</td><td>58963 B</td>
+</tr><tr><td>SelectAll</td><td>100</td><td>4</td><td>1,860,083.94 ns</td><td>145,432.537 ns</td><td>86,544.570 ns</td><td>1,872,883.98 ns</td><td>39.0625</td><td>3.9063</td><td>-</td><td>254792 B</td>
+</tr><tr><td>SelectWithFilter</td><td>100</td><td>4</td><td>2,219,743.97 ns</td><td>108,350.239 ns</td><td>56,669.270 ns</td><td>2,207,900.10 ns</td><td>41.0156</td><td>5.8594</td><td>-</td><td>262178 B</td>
+</tr><tr><td>SingleUpdate</td><td>100</td><td>4</td><td>13,292,978.82 ns</td><td>2,082,195.756 ns</td><td>1,239,081.295 ns</td><td>13,193,690.63 ns</td><td>-</td><td>-</td><td>-</td><td>185906 B</td>
+</tr><tr><td>SingleDelete</td><td>100</td><td>4</td><td>47.81 ns</td><td>16.822 ns</td><td>11.127 ns</td><td>48.44 ns</td><td>-</td><td>-</td><td>-</td><td>-</td>
+</tr><tr><td>CountAll</td><td>100</td><td>4</td><td>1,764,657.62 ns</td><td>391,934.562 ns</td><td>204,989.354 ns</td><td>1,783,903.03 ns</td><td>7.8125</td><td>-</td><td>-</td><td>60436 B</td>
+</tr><tr><td>TransactionBatchInsert</td><td>100</td><td>4</td><td>16,548,300.20 ns</td><td>8,241,554.915 ns</td><td>4,310,492.578 ns</td><td>16,067,757.81 ns</td><td>15.6250</td><td>-</td><td>-</td><td>109441 B</td>
+</tr><tr><td>ConcurrentReads</td><td>100</td><td>4</td><td>150,327,236.00 ns</td><td>35,223,562.641 ns</td><td>23,298,205.782 ns</td><td>146,219,110.00 ns</td><td>1600.0000</td><td>200.0000</td><td>-</td><td>10208758 B</td>
+</tr><tr><td>ConcurrentWrites</td><td>100</td><td>4</td><td>405,506,475.00 ns</td><td>88,878,446.467 ns</td><td>58,787,589.333 ns</td><td>404,877,475.00 ns</td><td>-</td><td>-</td><td>-</td><td>1298432 B</td>
+</tr><tr><td>ComplexQuery</td><td>100</td><td>4</td><td>1,764,859.35 ns</td><td>338,410.681 ns</td><td>176,995.330 ns</td><td>1,693,504.88 ns</td><td>7.8125</td><td>-</td><td>-</td><td>55171 B</td>
+</tr><tr><td>SingleInsert</td><td>100</td><td>8</td><td>24,223,393.13 ns</td><td>12,688,749.592 ns</td><td>8,392,822.217 ns</td><td>24,030,943.75 ns</td><td>-</td><td>-</td><td>-</td><td>64128 B</td>
+</tr><tr><td>BatchInsert</td><td>100</td><td>8</td><td>24,233,963.13 ns</td><td>4,737,311.378 ns</td><td>3,133,438.161 ns</td><td>24,155,665.63 ns</td><td>-</td><td>-</td><td>-</td><td>302080 B</td>
+</tr><tr><td>SingleSelect</td><td>100</td><td>8</td><td>2,821,567.09 ns</td><td>810,588.795 ns</td><td>423,953.613 ns</td><td>2,719,103.71 ns</td><td>7.8125</td><td>-</td><td>-</td><td>58978 B</td>
+</tr><tr><td>SelectAll</td><td>100</td><td>8</td><td>2,678,835.11 ns</td><td>459,493.699 ns</td><td>273,437.330 ns</td><td>2,787,201.56 ns</td><td>39.0625</td><td>3.9063</td><td>-</td><td>254792 B</td>
+</tr><tr><td>SelectWithFilter</td><td>100</td><td>8</td><td>3,157,375.78 ns</td><td>582,895.471 ns</td><td>385,549.263 ns</td><td>3,211,697.66 ns</td><td>39.0625</td><td>-</td><td>-</td><td>262230 B</td>
+</tr><tr><td>SingleUpdate</td><td>100</td><td>8</td><td>17,858,808.20 ns</td><td>6,744,010.609 ns</td><td>3,527,247.950 ns</td><td>16,836,390.63 ns</td><td>-</td><td>-</td><td>-</td><td>185912 B</td>
+</tr><tr><td>SingleDelete</td><td>100</td><td>8</td><td>16.60 ns</td><td>1.043 ns</td><td>0.690 ns</td><td>16.73 ns</td><td>0.0064</td><td>-</td><td>-</td><td>40 B</td>
+</tr><tr><td>CountAll</td><td>100</td><td>8</td><td>2,367,034.03 ns</td><td>326,362.595 ns</td><td>170,693.948 ns</td><td>2,367,267.19 ns</td><td>7.8125</td><td>-</td><td>-</td><td>60452 B</td>
+</tr><tr><td>TransactionBatchInsert</td><td>100</td><td>8</td><td>19,949,372.57 ns</td><td>8,045,814.927 ns</td><td>4,787,935.407 ns</td><td>22,659,587.50 ns</td><td>-</td><td>-</td><td>-</td><td>109568 B</td>
+</tr><tr><td>ConcurrentReads</td><td>100</td><td>8</td><td>180,636,740.74 ns</td><td>44,593,251.772 ns</td><td>26,536,728.844 ns</td><td>175,656,700.00 ns</td><td>3000.0000</td><td>666.6667</td><td>-</td><td>20492221 B</td>
+</tr><tr><td>ConcurrentWrites</td><td>100</td><td>8</td><td>718,389,655.56 ns</td><td>359,664,151.414 ns</td><td>214,030,367.419 ns</td><td>644,339,100.00 ns</td><td>-</td><td>-</td><td>-</td><td>2547712 B</td>
+</tr><tr><td>ComplexQuery</td><td>100</td><td>8</td><td>1,718,087.80 ns</td><td>201,449.111 ns</td><td>119,879.135 ns</td><td>1,678,824.22 ns</td><td>7.8125</td><td>-</td><td>-</td><td>55171 B</td>
+</tr><tr><td>SingleInsert</td><td>1000</td><td>1</td><td>20,682,618.13 ns</td><td>13,641,667.330 ns</td><td>9,023,118.300 ns</td><td>19,956,297.66 ns</td><td>-</td><td>-</td><td>-</td><td>64128 B</td>
+</tr><tr><td>BatchInsert</td><td>1000</td><td>1</td><td>12,649,396.09 ns</td><td>1,947,341.324 ns</td><td>1,018,497.166 ns</td><td>12,382,546.88 ns</td><td>-</td><td>-</td><td>-</td><td>302080 B</td>
+</tr><tr><td>SingleSelect</td><td>1000</td><td>1</td><td>1,537,465.77 ns</td><td>370,927.760 ns</td><td>194,002.391 ns</td><td>1,448,449.51 ns</td><td>7.8125</td><td>-</td><td>-</td><td>58978 B</td>
+</tr><tr><td>SelectAll</td><td>1000</td><td>1</td><td>3,344,820.14 ns</td><td>633,794.820 ns</td><td>377,161.131 ns</td><td>3,312,502.34 ns</td><td>324.2188</td><td>97.6563</td><td>-</td><td>2063519 B</td>
+</tr><tr><td>SelectWithFilter</td><td>1000</td><td>1</td><td>3,440,717.50 ns</td><td>232,819.761 ns</td><td>153,995.857 ns</td><td>3,423,637.89 ns</td><td>328.1250</td><td>97.6563</td><td>-</td><td>2072028 B</td>
+</tr><tr><td>SingleUpdate</td><td>1000</td><td>1</td><td>17,517,474.83 ns</td><td>8,497,811.982 ns</td><td>5,056,911.604 ns</td><td>16,723,326.56 ns</td><td>-</td><td>-</td><td>-</td><td>186036 B</td>
+</tr><tr><td>SingleDelete</td><td>1000</td><td>1</td><td>3,122,190.97 ns</td><td>10,639,775.426 ns</td><td>6,331,559.692 ns</td><td>20.31 ns</td><td>-</td><td>-</td><td>-</td><td>-</td>
+</tr><tr><td>CountAll</td><td>1000</td><td>1</td><td>1,863,259.01 ns</td><td>1,175,428.245 ns</td><td>614,771.700 ns</td><td>1,610,171.00 ns</td><td>7.8125</td><td>-</td><td>-</td><td>60436 B</td>
+</tr><tr><td>TransactionBatchInsert</td><td>1000</td><td>1</td><td>15,571,224.31 ns</td><td>11,032,977.798 ns</td><td>6,565,548.116 ns</td><td>13,302,981.25 ns</td><td>15.6250</td><td>-</td><td>-</td><td>109448 B</td>
+</tr><tr><td>ConcurrentReads</td><td>1000</td><td>1</td><td>31,624,556.25 ns</td><td>1,912,255.084 ns</td><td>1,000,146.384 ns</td><td>31,413,725.00 ns</td><td>3250.0000</td><td>1000.0000</td><td>-</td><td>20475466 B</td>
+</tr><tr><td>ConcurrentWrites</td><td>1000</td><td>1</td><td>86,309,950.00 ns</td><td>14,742,967.484 ns</td><td>9,751,560.164 ns</td><td>83,645,425.00 ns</td><td>-</td><td>-</td><td>-</td><td>253952 B</td>
+</tr><tr><td>ComplexQuery</td><td>1000</td><td>1</td><td>1,830,640.65 ns</td><td>452,092.382 ns</td><td>236,453.058 ns</td><td>1,742,134.86 ns</td><td>7.8125</td><td>-</td><td>-</td><td>55170 B</td>
+</tr><tr><td>SingleInsert</td><td>1000</td><td>4</td><td>13,632,336.52 ns</td><td>5,875,558.767 ns</td><td>3,073,030.844 ns</td><td>13,152,921.09 ns</td><td>-</td><td>-</td><td>-</td><td>64128 B</td>
+</tr><tr><td>BatchInsert</td><td>1000</td><td>4</td><td>12,755,325.20 ns</td><td>4,724,756.974 ns</td><td>2,471,139.255 ns</td><td>11,909,939.84 ns</td><td>46.8750</td><td>-</td><td>-</td><td>301845 B</td>
+</tr><tr><td>SingleSelect</td><td>1000</td><td>4</td><td>1,437,320.46 ns</td><td>241,849.722 ns</td><td>126,492.081 ns</td><td>1,473,494.53 ns</td><td>7.8125</td><td>-</td><td>-</td><td>58976 B</td>
+</tr><tr><td>SelectAll</td><td>1000</td><td>4</td><td>2,993,327.20 ns</td><td>230,365.308 ns</td><td>120,485.510 ns</td><td>2,969,433.01 ns</td><td>324.2188</td><td>97.6563</td><td>-</td><td>2063519 B</td>
+</tr><tr><td>SelectWithFilter</td><td>1000</td><td>4</td><td>4,802,460.07 ns</td><td>1,162,531.901 ns</td><td>691,804.087 ns</td><td>4,466,108.20 ns</td><td>328.1250</td><td>97.6563</td><td>-</td><td>2072040 B</td>
+</tr><tr><td>SingleUpdate</td><td>1000</td><td>4</td><td>18,375,571.48 ns</td><td>11,426,149.934 ns</td><td>5,976,097.350 ns</td><td>17,489,721.88 ns</td><td>-</td><td>-</td><td>-</td><td>186030 B</td>
+</tr><tr><td>SingleDelete</td><td>1000</td><td>4</td><td>2,277,509.98 ns</td><td>7,672,086.425 ns</td><td>4,565,535.570 ns</td><td>24.22 ns</td><td>-</td><td>-</td><td>-</td><td>-</td>
+</tr><tr><td>CountAll</td><td>1000</td><td>4</td><td>2,293,030.99 ns</td><td>1,882,293.713 ns</td><td>1,120,122.796 ns</td><td>1,796,084.77 ns</td><td>7.8125</td><td>-</td><td>-</td><td>60436 B</td>
+</tr><tr><td>TransactionBatchInsert</td><td>1000</td><td>4</td><td>16,838,641.60 ns</td><td>7,986,350.114 ns</td><td>4,177,015.533 ns</td><td>16,854,868.75 ns</td><td>15.6250</td><td>-</td><td>-</td><td>109448 B</td>
+</tr><tr><td>ConcurrentReads</td><td>1000</td><td>4</td><td>178,521,652.00 ns</td><td>50,460,180.542 ns</td><td>33,376,285.132 ns</td><td>174,222,310.00 ns</td><td>13200.0000</td><td>3600.0000</td><td>-</td><td>83510920 B</td>
+</tr><tr><td>ConcurrentWrites</td><td>1000</td><td>4</td><td>312,846,416.67 ns</td><td>76,893,340.665 ns</td><td>45,757,993.645 ns</td><td>302,697,250.00 ns</td><td>-</td><td>-</td><td>-</td><td>1306624 B</td>
+</tr><tr><td>ComplexQuery</td><td>1000</td><td>4</td><td>2,361,795.39 ns</td><td>621,519.480 ns</td><td>325,066.706 ns</td><td>2,266,819.92 ns</td><td>7.8125</td><td>-</td><td>-</td><td>55171 B</td>
+</tr><tr><td>SingleInsert</td><td>1000</td><td>8</td><td>16,914,352.08 ns</td><td>11,952,644.810 ns</td><td>7,112,827.204 ns</td><td>13,477,031.25 ns</td><td>-</td><td>-</td><td>-</td><td>64512 B</td>
+</tr><tr><td>BatchInsert</td><td>1000</td><td>8</td><td>13,232,005.56 ns</td><td>1,374,945.429 ns</td><td>818,207.971 ns</td><td>12,840,909.38 ns</td><td>46.8750</td><td>-</td><td>-</td><td>301845 B</td>
+</tr><tr><td>SingleSelect</td><td>1000</td><td>8</td><td>3,621,340.08 ns</td><td>3,987,256.513 ns</td><td>2,637,323.308 ns</td><td>2,168,294.04 ns</td><td>7.8125</td><td>-</td><td>-</td><td>58978 B</td>
+</tr><tr><td>SelectAll</td><td>1000</td><td>8</td><td>3,844,350.43 ns</td><td>769,606.265 ns</td><td>457,980.344 ns</td><td>3,864,353.91 ns</td><td>324.2188</td><td>97.6563</td><td>-</td><td>2063660 B</td>
+</tr><tr><td>SelectWithFilter</td><td>1000</td><td>8</td><td>4,510,427.15 ns</td><td>305,524.038 ns</td><td>159,794.979 ns</td><td>4,481,709.18 ns</td><td>328.1250</td><td>97.6563</td><td>-</td><td>2072026 B</td>
+</tr><tr><td>SingleUpdate</td><td>1000</td><td>8</td><td>12,516,669.62 ns</td><td>1,310,079.636 ns</td><td>779,607.377 ns</td><td>12,572,217.19 ns</td><td>-</td><td>-</td><td>-</td><td>186036 B</td>
+</tr><tr><td>SingleDelete</td><td>1000</td><td>8</td><td>2,446,662.33 ns</td><td>8,306,600.378 ns</td><td>4,943,124.646 ns</td><td>39.06 ns</td><td>-</td><td>-</td><td>-</td><td>-</td>
+</tr><tr><td>CountAll</td><td>1000</td><td>8</td><td>1,728,303.03 ns</td><td>359,170.847 ns</td><td>187,853.298 ns</td><td>1,735,077.54 ns</td><td>7.8125</td><td>-</td><td>-</td><td>60452 B</td>
+</tr><tr><td>TransactionBatchInsert</td><td>1000</td><td>8</td><td>21,206,835.76 ns</td><td>23,074,345.711 ns</td><td>13,731,173.015 ns</td><td>15,381,218.75 ns</td><td>15.6250</td><td>-</td><td>-</td><td>109448 B</td>
+</tr><tr><td>ConcurrentReads</td><td>1000</td><td>8</td><td>208,052,533.33 ns</td><td>90,207,398.907 ns</td><td>53,680,976.144 ns</td><td>190,506,366.67 ns</td><td>26666.6667</td><td>4333.3333</td><td>1000.0000</td><td>167926691 B</td>
+</tr><tr><td>ConcurrentWrites</td><td>1000</td><td>8</td><td>638,802,300.00 ns</td><td>213,095,041.874 ns</td><td>111,452,827.284 ns</td><td>630,638,550.00 ns</td><td>-</td><td>-</td><td>-</td><td>2629632 B</td>
+</tr><tr><td>ComplexQuery</td><td>1000</td><td>8</td><td>2,223,108.62 ns</td><td>243,281.466 ns</td><td>127,240.911 ns</td><td>2,225,694.92 ns</td><td>7.8125</td><td>-</td><td>-</td><td>55171 B</td>
+</tr><tr><td>SingleInsert</td><td>10000</td><td>1</td><td>13,715,979.69 ns</td><td>5,959,944.429 ns</td><td>3,117,166.177 ns</td><td>12,177,631.25 ns</td><td>-</td><td>-</td><td>-</td><td>64256 B</td>
+</tr><tr><td>BatchInsert</td><td>10000</td><td>1</td><td>20,512,243.40 ns</td><td>23,812,031.629 ns</td><td>14,170,158.073 ns</td><td>13,605,109.38 ns</td><td>46.8750</td><td>-</td><td>-</td><td>301845 B</td>
+</tr><tr><td>SingleSelect</td><td>10000</td><td>1</td><td>1,717,100.59 ns</td><td>222,265.037 ns</td><td>116,248.912 ns</td><td>1,703,045.61 ns</td><td>7.8125</td><td>-</td><td>-</td><td>58978 B</td>
+</tr><tr><td>SelectAll</td><td>10000</td><td>1</td><td>24,987,450.00 ns</td><td>4,429,834.377 ns</td><td>2,930,061.162 ns</td><td>25,853,556.25 ns</td><td>3312.5000</td><td>531.2500</td><td>125.0000</td><td>20250920 B</td>
+</tr><tr><td>SelectWithFilter</td><td>10000</td><td>1</td><td>25,252,693.40 ns</td><td>4,938,212.195 ns</td><td>2,938,650.867 ns</td><td>26,647,243.75 ns</td><td>3375.0000</td><td>562.5000</td><td>156.2500</td><td>20264429 B</td>
+</tr><tr><td>SingleUpdate</td><td>10000</td><td>1</td><td>18,992,343.36 ns</td><td>15,227,666.374 ns</td><td>7,964,363.954 ns</td><td>14,264,321.88 ns</td><td>31.2500</td><td>-</td><td>-</td><td>257908 B</td>
+</tr><tr><td>SingleDelete</td><td>10000</td><td>1</td><td>13,298,952.34 ns</td><td>7,244,497.005 ns</td><td>3,789,012.012 ns</td><td>11,676,071.88 ns</td><td>-</td><td>-</td><td>-</td><td>54272 B</td>
+</tr><tr><td>CountAll</td><td>10000</td><td>1</td><td>1,841,016.73 ns</td><td>138,948.520 ns</td><td>82,686.036 ns</td><td>1,861,220.12 ns</td><td>7.8125</td><td>-</td><td>-</td><td>60436 B</td>
+</tr><tr><td>TransactionBatchInsert</td><td>10000</td><td>1</td><td>12,520,640.23 ns</td><td>2,462,872.311 ns</td><td>1,288,129.841 ns</td><td>12,281,375.00 ns</td><td>15.6250</td><td>-</td><td>-</td><td>109448 B</td>
+</tr><tr><td>ConcurrentReads</td><td>10000</td><td>1</td><td>247,634,644.44 ns</td><td>57,855,484.226 ns</td><td>34,428,870.649 ns</td><td>266,561,833.33 ns</td><td>33666.6667</td><td>6000.0000</td><td>1666.6667</td><td>202080861 B</td>
+</tr><tr><td>ConcurrentWrites</td><td>10000</td><td>1</td><td>83,669,935.19 ns</td><td>43,657,182.098 ns</td><td>25,979,688.796 ns</td><td>88,491,750.00 ns</td><td>-</td><td>-</td><td>-</td><td>252587 B</td>
+</tr><tr><td>ComplexQuery</td><td>10000</td><td>1</td><td>5,491,263.06 ns</td><td>1,572,737.315 ns</td><td>935,910.749 ns</td><td>5,906,351.17 ns</td><td>7.8125</td><td>-</td><td>-</td><td>55236 B</td>
+</tr><tr><td>SingleInsert</td><td>10000</td><td>4</td><td>13,329,618.06 ns</td><td>5,357,195.518 ns</td><td>3,187,981.122 ns</td><td>11,715,671.88 ns</td><td>-</td><td>-</td><td>-</td><td>64256 B</td>
+</tr><tr><td>BatchInsert</td><td>10000</td><td>4</td><td>18,397,369.10 ns</td><td>9,714,802.262 ns</td><td>5,781,122.999 ns</td><td>19,886,659.38 ns</td><td>31.2500</td><td>-</td><td>-</td><td>301842 B</td>
+</tr><tr><td>SingleSelect</td><td>10000</td><td>4</td><td>1,791,961.52 ns</td><td>359,962.284 ns</td><td>214,207.781 ns</td><td>1,765,981.05 ns</td><td>7.8125</td><td>-</td><td>-</td><td>58978 B</td>
+</tr><tr><td>SelectAll</td><td>10000</td><td>4</td><td>25,406,273.96 ns</td><td>4,362,493.829 ns</td><td>2,596,050.102 ns</td><td>25,658,278.13 ns</td><td>3312.5000</td><td>531.2500</td><td>125.0000</td><td>20250899 B</td>
+</tr><tr><td>SelectWithFilter</td><td>10000</td><td>4</td><td>24,440,847.19 ns</td><td>4,264,695.405 ns</td><td>2,820,831.957 ns</td><td>25,745,984.38 ns</td><td>3375.0000</td><td>562.5000</td><td>156.2500</td><td>20265517 B</td>
+</tr><tr><td>SingleUpdate</td><td>10000</td><td>4</td><td>29,092,935.94 ns</td><td>30,814,657.748 ns</td><td>18,337,308.552 ns</td><td>19,217,592.19 ns</td><td>31.2500</td><td>-</td><td>-</td><td>257908 B</td>
+</tr><tr><td>SingleDelete</td><td>10000</td><td>4</td><td>18,019,766.21 ns</td><td>9,466,582.552 ns</td><td>4,951,205.719 ns</td><td>18,865,874.22 ns</td><td>-</td><td>-</td><td>-</td><td>54272 B</td>
+</tr><tr><td>CountAll</td><td>10000</td><td>4</td><td>1,864,412.36 ns</td><td>210,164.964 ns</td><td>139,011.111 ns</td><td>1,814,189.55 ns</td><td>7.8125</td><td>-</td><td>-</td><td>60436 B</td>
+</tr><tr><td>TransactionBatchInsert</td><td>10000</td><td>4</td><td>17,562,679.95 ns</td><td>8,981,001.267 ns</td><td>5,344,449.797 ns</td><td>16,416,319.53 ns</td><td>15.6250</td><td>-</td><td>-</td><td>109444 B</td>
+</tr><tr><td>ConcurrentReads</td><td>10000</td><td>4</td><td>490,942,370.00 ns</td><td>121,237,159.944 ns</td><td>80,190,874.773 ns</td><td>491,117,900.00 ns</td><td>141000.0000</td><td>25000.0000</td><td>10000.0000</td><td>827867960 B</td>
+</tr><tr><td>ConcurrentWrites</td><td>10000</td><td>4</td><td>364,837,877.78 ns</td><td>68,732,277.481 ns</td><td>40,901,475.849 ns</td><td>383,714,900.00 ns</td><td>-</td><td>-</td><td>-</td><td>1306624 B</td>
+</tr><tr><td>ComplexQuery</td><td>10000</td><td>4</td><td>5,679,067.58 ns</td><td>1,379,822.118 ns</td><td>721,673.648 ns</td><td>5,967,729.30 ns</td><td>7.8125</td><td>-</td><td>-</td><td>55236 B</td>
+</tr><tr><td>SingleInsert</td><td>10000</td><td>8</td><td>18,182,453.44 ns</td><td>6,584,564.649 ns</td><td>4,355,281.825 ns</td><td>20,047,334.38 ns</td><td>-</td><td>-</td><td>-</td><td>64256 B</td>
+</tr><tr><td>BatchInsert</td><td>10000</td><td>8</td><td>12,927,874.65 ns</td><td>951,789.725 ns</td><td>566,394.799 ns</td><td>13,160,193.75 ns</td><td>31.2500</td><td>-</td><td>-</td><td>301842 B</td>
+</tr><tr><td>SingleSelect</td><td>10000</td><td>8</td><td>1,863,862.67 ns</td><td>249,872.565 ns</td><td>130,688.183 ns</td><td>1,914,482.81 ns</td><td>7.8125</td><td>-</td><td>-</td><td>58978 B</td>
+</tr><tr><td>SelectAll</td><td>10000</td><td>8</td><td>24,292,065.63 ns</td><td>4,913,614.458 ns</td><td>2,924,013.149 ns</td><td>25,738,268.75 ns</td><td>3312.5000</td><td>531.2500</td><td>125.0000</td><td>20250553 B</td>
+</tr><tr><td>SelectWithFilter</td><td>10000</td><td>8</td><td>24,872,617.81 ns</td><td>5,630,789.819 ns</td><td>3,724,418.829 ns</td><td>25,586,525.00 ns</td><td>3375.0000</td><td>562.5000</td><td>156.2500</td><td>20266004 B</td>
+</tr><tr><td>SingleUpdate</td><td>10000</td><td>8</td><td>36,136,748.13 ns</td><td>40,877,711.481 ns</td><td>27,038,075.157 ns</td><td>22,498,462.50 ns</td><td>31.2500</td><td>-</td><td>-</td><td>257908 B</td>
+</tr><tr><td>SingleDelete</td><td>10000</td><td>8</td><td>19,448,652.78 ns</td><td>14,547,216.589 ns</td><td>8,656,815.252 ns</td><td>17,136,310.94 ns</td><td>-</td><td>-</td><td>-</td><td>54272 B</td>
+</tr><tr><td>CountAll</td><td>10000</td><td>8</td><td>1,863,581.02 ns</td><td>212,999.932 ns</td><td>126,752.843 ns</td><td>1,868,656.15 ns</td><td>7.8125</td><td>-</td><td>-</td><td>60436 B</td>
+</tr><tr><td>TransactionBatchInsert</td><td>10000</td><td>8</td><td>17,105,634.69 ns</td><td>10,564,727.323 ns</td><td>6,987,912.997 ns</td><td>13,168,592.19 ns</td><td>-</td><td>-</td><td>-</td><td>109568 B</td>
+</tr><tr><td>ConcurrentReads</td><td>10000</td><td>8</td><td>877,432,470.00 ns</td><td>74,285,243.716 ns</td><td>49,135,089.267 ns</td><td>864,663,450.00 ns</td><td>282000.0000</td><td>65000.0000</td><td>19000.0000</td><td>1659177808 B</td>
+</tr><tr><td>ConcurrentWrites</td><td>10000</td><td>8</td><td>654,804,930.00 ns</td><td>200,190,923.294 ns</td><td>132,413,900.722 ns</td><td>675,255,900.00 ns</td><td>-</td><td>-</td><td>-</td><td>2547712 B</td>
+</tr><tr><td>ComplexQuery</td><td>10000</td><td>8</td><td>5,374,490.71 ns</td><td>1,504,997.592 ns</td><td>895,599.926 ns</td><td>5,711,322.66 ns</td><td>7.8125</td><td>-</td><td>-</td><td>55236 B</td>
+</tr></tbody></table>
+</body>
+</html>

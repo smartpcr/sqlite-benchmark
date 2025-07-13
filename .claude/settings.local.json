@@ -10,7 +10,9 @@
       "Bash(dotnet build:*)",
       "Bash(dos2unix:*)",
       "Bash(true)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(csc:*)",
+      "Bash(dotnet run:*)"
     ],
     "deny": []
   }

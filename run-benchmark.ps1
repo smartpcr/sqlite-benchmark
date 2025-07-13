@@ -10,6 +10,8 @@
     Filter for specific benchmarks to run (uses BenchmarkDotNet filter syntax)
 .PARAMETER NoBuild
     Skip the build step and run existing binaries
+.PARAMETER BenchmarkType
+    Type of benchmark to run: Standard, Payload, or All
 .EXAMPLE
     .\run-benchmark.ps1
     .\run-benchmark.ps1 -Configuration Debug
@@ -22,7 +24,10 @@ param(
     
     [string]$Filter = '*',
     
-    [switch]$NoBuild
+    [switch]$NoBuild,
+    
+    [ValidateSet('Standard', 'Payload', 'All')]
+    [string]$BenchmarkType = 'Standard'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -74,6 +79,17 @@ if (-not (Test-Path $exePath)) {
 
 # Prepare benchmark arguments
 $benchmarkArgs = @()
+
+# Add benchmark type argument
+switch ($BenchmarkType) {
+    'Payload' {
+        $benchmarkArgs += '--payload'
+    }
+    'All' {
+        $benchmarkArgs += '--all'
+    }
+    # 'Standard' requires no additional argument
+}
 
 if ($Filter -ne '*') {
     $benchmarkArgs += '--filter'

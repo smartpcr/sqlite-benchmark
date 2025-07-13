@@ -15,11 +15,18 @@ Options:
 - `-Configuration <Debug|Release>` - Build configuration (default: Release)
 - `-Filter <pattern>` - Filter specific benchmarks (e.g., `"*Insert*"`)
 - `-NoBuild` - Skip build step
+- `-BenchmarkType <Standard|Payload|All>` - Choose benchmark suite (default: Standard)
 
 Examples:
 ```powershell
-# Run all benchmarks
+# Run standard benchmarks
 .\run-benchmark.ps1
+
+# Run payload size benchmarks
+.\run-benchmark.ps1 -BenchmarkType Payload
+
+# Run all benchmark suites
+.\run-benchmark.ps1 -BenchmarkType All
 
 # Run only insert benchmarks
 .\run-benchmark.ps1 -Filter "*Insert*"
@@ -58,9 +65,11 @@ Examples:
 
 ## Benchmark Categories
 
-The benchmarks test various aspects of SQLite operations:
+### Standard Benchmarks (`SqliteProviderBenchmarks`)
 
-### Basic Operations
+Tests various aspects of SQLite operations:
+
+#### Basic Operations
 - **SingleInsert** - Insert a single record
 - **BatchInsert** - Insert multiple records in a batch
 - **SingleSelect** - Select a single record by ID
@@ -76,9 +85,31 @@ The benchmarks test various aspects of SQLite operations:
 - **ConcurrentWrites** - Concurrent write operations
 - **ComplexQuery** - Complex JSON-based queries
 
-### Parameters
+#### Parameters
 - **RecordCount**: [100, 1000, 10000] - Number of records to test with
 - **ThreadCount**: [1, 4, 8] - Number of concurrent threads
+
+### Payload Size Benchmarks (`PayloadSizeBenchmarks`)
+
+Tests SQLite performance with different data sizes:
+
+#### Operations
+- **Insert** - Insert a single record with specified payload size
+- **BatchInsert** - Insert multiple records with specified payload size
+- **Select** - Select a record with specified payload size
+- **Update** - Update a record with specified payload size
+- **Delete** - Delete a record with specified payload size
+- **TransactionInsert** - Insert multiple records in a transaction
+- **SelectMultiple** - Select multiple records with specified payload size
+
+#### Payload Sizes
+- **ExtraSmall**: 150 bytes
+- **Small**: 1 KB
+- **Medium**: 100 KB  
+- **Large**: 5 MB
+- **ExtraLarge**: 50 MB
+
+Note: Large payload benchmarks (5 MB and 50 MB) may take significant time and memory.
 
 ## Understanding Results
 
