@@ -26,7 +26,7 @@ namespace SQLite.Benchmark
         private List<long> _existingIds = null!;
 
         // Configuration parameters
-        [Params("1024", "4096", "1048576", "4194304")] // 1KB, 4KB, 1MB, 4MB in bytes
+        [Params("-500", "-2000", "-5000")] // 500KB, 2MB, 5MB in bytes
         public string CacheSize { get; set; }
 
         [Params("1024", "4096")] // 1KB, 4KB
