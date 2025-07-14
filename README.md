@@ -112,46 +112,12 @@ using (provider.BeginTransaction())
 ## Benchmark Results
 
 The benchmark suite measures:
-- **Throughput**: Operations per second
-- **Latency**: Time per operation
-- **Memory**: Allocations and GC pressure
-- **Concurrency**: Multi-threaded performance
+- [basic](https://raw.githack.com/smartpcr/sqlite-benchmark/main/docs/benchmark-results/SQLite.Benchmark.PayloadSize.Report.html)
+- [payload size](https://raw.githack.com/smartpcr/sqlite-benchmark/main/docs/benchmark-results/SQLite.Benchmark.PayloadSize.html)
+
 
 Results are output in various formats and saved to the `BenchmarkDotNet.Artifacts` folder.
 
-## Configuration
-
-### Connection String Options
-```
-Data Source=<path>;Version=3;Journal Mode=WAL;Cache Size=10000;Page Size=4096;
-```
-
-### Performance Tuning
-- WAL mode enabled by default for better concurrency
-- Foreign keys enabled for referential integrity
-- Configurable connection pooling
-- Batch operations use transactions automatically
-
-## Architecture
-
-The solution follows these patterns:
-- **Repository Pattern**: Generic data access interface
-- **Unit of Work**: Transaction management
-- **Factory Pattern**: Connection creation
-- **Strategy Pattern**: Serialization strategies
-
-See [docs/architecture.md](docs/architecture.md) for detailed architecture documentation.
-
-## Contributing
-
-1. Follow the coding standards in `.editorconfig`
-2. Write tests for new features
-3. Run benchmarks to ensure no performance regression
-4. Update documentation as needed
-
-## License
-
-[Your License Here]
 
 ## Acknowledgments
 
