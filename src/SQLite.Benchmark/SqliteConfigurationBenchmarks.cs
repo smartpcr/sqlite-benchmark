@@ -19,6 +19,7 @@ namespace SQLite.Benchmark
     [MemoryDiagnoser]
     public class SqliteConfigurationBenchmarks
     {
+        private const string DbFolder = @"C:\ClusterStorage\Infrastructure_1\Shares\SU1_Infrastructure_1\Updates\ReliableStore";
         private ConfigurableSqliteProvider<BenchmarkEntity> _provider = null!;
         private string _dbPath = null!;
         private List<BenchmarkEntity> _testData = null!;
@@ -37,11 +38,11 @@ namespace SQLite.Benchmark
         [Params("OFF", "NORMAL", "FULL")]
         public string SynchronousMode { get; set; }
 
-        [Params("100", "5000", "30000")] // 100ms, 5s, 30s
-        public string BusyTimeout { get; set; }
-
         [Params(true, false)]
         public bool EnableForeignKeys { get; set; }
+
+        [Params("small", "medium", "large")] // small=1KB, medium=1MB, large=5MB
+        public string PayloadSize { get; set; }
 
         [Params(1000)] // Fixed record count for configuration testing
         public int RecordCount { get; set; }
@@ -49,7 +50,12 @@ namespace SQLite.Benchmark
         [GlobalSetup]
         public void Setup()
         {
-            _dbPath = Path.Combine(Path.GetTempPath(), $"config_benchmark_{Guid.NewGuid()}.db");
+            if (!Directory.Exists(DbFolder))
+            {
+                Directory.CreateDirectory(DbFolder);
+            }
+
+            _dbPath = Path.Combine(SqliteConfigurationBenchmarks.DbFolder, $"config_benchmark_{Guid.NewGuid()}.db");
             var connectionString = $"Data Source={_dbPath};Version=3;";
 
             // Convert cache size from bytes to pages (divide by page size)
@@ -61,20 +67,22 @@ namespace SQLite.Benchmark
                 PageSize = PageSize,
                 JournalMode = JournalMode,
                 SynchronousMode = SynchronousMode,
-                BusyTimeout = BusyTimeout,
+                BusyTimeout = "5000", // Fixed at 5 seconds
                 EnableForeignKeys = EnableForeignKeys
             };
 
             _provider = new ConfigurableSqliteProvider<BenchmarkEntity>(connectionString, config);
             _provider.CreateTable();
 
-            // Prepare test data
+            // Prepare test data with varying payload sizes
+            var payloadData = GeneratePayloadData();
+
             _testData = Enumerable.Range(1, RecordCount)
                 .Select(i => new BenchmarkEntity
                 {
                     Name = $"Entity {i}",
                     Value = i,
-                    Description = $"Description for entity {i} with some additional text to make it more realistic",
+                    Description = payloadData, // Use payload data based on size parameter
                     IsActive = i % 2 == 0,
                     Score = i * 1.5,
                     Tags = string.Join(",", Enumerable.Range(1, 5).Select(t => $"tag{t}"))
@@ -84,6 +92,27 @@ namespace SQLite.Benchmark
             // Insert initial data for read benchmarks
             _provider.InsertBatch(_testData.Take(RecordCount / 2));
             _existingIds = _provider.GetAll().Select(e => e.Id).ToList();
+        }
+
+        private string GeneratePayloadData()
+        {
+            int payloadSizeInBytes = PayloadSize switch
+            {
+                "small" => 1024,        // 1KB
+                "medium" => 1048576,    // 1MB
+                "large" => 5242880,     // 5MB
+                _ => 1024
+            };
+
+            // Generate a string of the specified size
+            // Using a repeating pattern to ensure consistent size
+            var pattern = "The quick brown fox jumps over the lazy dog. ";
+            var patternLength = pattern.Length;
+            var repeatCount = payloadSizeInBytes / patternLength;
+            var remainder = payloadSizeInBytes % patternLength;
+
+            return string.Concat(Enumerable.Repeat(pattern, repeatCount)) +
+                   (remainder > 0 ? pattern.Substring(0, remainder) : "");
         }
 
         [GlobalCleanup]
@@ -249,7 +278,7 @@ namespace SQLite.Benchmark
             AddColumn(new TagColumn("Page", name => name.PageSize));
             AddColumn(new TagColumn("Journal", name => name.JournalMode));
             AddColumn(new TagColumn("Sync", name => name.SynchronousMode));
-            AddColumn(new TagColumn("BusyTimeout", name => name.BusyTimeout));
+            AddColumn(new TagColumn("PayloadSize", name => name.PayloadSize));
             AddColumn(new TagColumn("ForeignKeys", name => name.EnableForeignKeys.ToString()));
 
             WithSummaryStyle(SummaryStyle.Default.WithRatioStyle(RatioStyle.Trend));
@@ -282,7 +311,18 @@ namespace SQLite.Benchmark
             if (instance != null)
             {
                 // Set the parameter value from the benchmark case
-                var param = benchmarkCase.Parameters.Items.FirstOrDefault(p => p.Name == _columnName);
+                var paramName = _columnName switch
+                {
+                    "Cache" => "CacheSize",
+                    "Page" => "PageSize",
+                    "Journal" => "JournalMode",
+                    "Sync" => "SynchronousMode",
+                    "PayloadSize" => "PayloadSize",
+                    "ForeignKeys" => "EnableForeignKeys",
+                    _ => _columnName
+                };
+
+                var param = benchmarkCase.Parameters.Items.FirstOrDefault(p => p.Name == paramName);
                 if (param != null)
                 {
                     return param.Value?.ToString() ?? "";

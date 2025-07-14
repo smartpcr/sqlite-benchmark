@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  # Initialize database
+  init:
+    build:
+      context: .
+      dockerfile: Dockerfile.failover
+    volumes:
+      - ./data:/data
+    command: ["-d", "/data/failover.db", "-i", "init", "-l", "0", "-m", "init", "-p", "100"]
+    
+  # Active instance - runs 3 loops then crashes
+  instance1:
+    build:
+      context: .
+      dockerfile: Dockerfile.failover
+    volumes:
+      - ./data:/data
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    command: ["-d", "/data/failover.db", "-i", "instance1", "-l", "3", "-m", "update", "-s", "-w", "1000"]
+    
+  # Passive instance - waits, then runs 5 loops after instance1 crashes
+  instance2:
+    build:
+      context: .
+      dockerfile: Dockerfile.failover
+    volumes:
+      - ./data:/data
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    command: ["-d", "/data/failover.db", "-i", "instance2", "-l", "5", "-m", "update", "-w", "10000", "-r", "60000"]

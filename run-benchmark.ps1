@@ -26,7 +26,7 @@ param(
     
     [switch]$NoBuild,
     
-    [ValidateSet('Standard', 'Payload', 'Config', 'All', 'Interactive')]
+    [ValidateSet('Standard', 'Payload', 'Config', 'All', 'Failover', 'Interactive')]
     [string]$BenchmarkType = 'Interactive'
 )
 
@@ -35,7 +35,8 @@ $ErrorActionPreference = 'Stop'
 # Get the script directory
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectPath = Join-Path $scriptDir 'src/SQLite.Benchmark/SQLite.Benchmark.csproj'
-$outputPath = Join-Path $scriptDir "bin/$Configuration/net472"
+# Since BaseOutputPath is removed, binaries are now in the project's local bin folder
+$outputPath = Join-Path $scriptDir "src/SQLite.Benchmark/bin/$Configuration/net472"
 
 Write-Host "SQLite Benchmark Runner" -ForegroundColor Cyan
 Write-Host "======================" -ForegroundColor Cyan
@@ -85,17 +86,19 @@ if ($BenchmarkType -eq 'Interactive') {
     Write-Host "  2. Payload size benchmarks (test with different data sizes)" -ForegroundColor Gray
     Write-Host "  3. Configuration benchmarks (test different SQLite settings)" -ForegroundColor Gray
     Write-Host "  4. All benchmarks" -ForegroundColor Gray
+    Write-Host "  5. Failover test (simulate service instance switching)" -ForegroundColor Gray
     Write-Host ""
     
-    $selection = Read-Host "Enter your choice (1-4)"
+    $selection = Read-Host "Enter your choice (1-5)"
     
     switch ($selection) {
         '1' { $BenchmarkType = 'Standard' }
         '2' { $BenchmarkType = 'Payload' }
         '3' { $BenchmarkType = 'Config' }
         '4' { $BenchmarkType = 'All' }
+        '5' { $BenchmarkType = 'Failover' }
         default {
-            Write-Error "Invalid selection. Please run again and choose 1, 2, 3, or 4."
+            Write-Error "Invalid selection. Please run again and choose 1, 2, 3, 4, or 5."
             exit 1
         }
     }
@@ -117,6 +120,29 @@ switch ($BenchmarkType) {
     }
     'All' {
         $benchmarkArgs += '--all'
+    }
+    'Failover' {
+        # Run the failover test instead of benchmarks
+        Write-Host "Running failover tests..." -ForegroundColor Yellow
+        Write-Host ""
+        
+        $testArgs = @(
+            'test',
+            (Join-Path $scriptDir 'src/SQLite.Tests/SQLite.Tests.csproj'),
+            '-c', $Configuration,
+            '--filter', 'FullyQualifiedName~SqliteFailoverTests|FullyQualifiedName~SqliteDockerFailoverTests'
+        )
+        
+        & dotnet $testArgs
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failover tests failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+        }
+        
+        Write-Host ""
+        Write-Host "Failover tests completed successfully!" -ForegroundColor Green
+        exit 0
     }
     # 'Standard' requires no additional argument
 }

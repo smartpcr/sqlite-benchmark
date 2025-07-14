@@ -41,7 +41,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  -c, --configuration <Debug|Release>  Build configuration (default: Release)"
             echo "  -f, --filter <pattern>              Filter benchmarks (default: *)"
-            echo "  -t, --type <standard|payload|config|all>   Benchmark type (default: interactive)"
+            echo "  -t, --type <standard|payload|config|all|failover>   Benchmark type (default: interactive)"
             echo "  --no-build                          Skip build step"
             echo "  -h, --help                          Show this help message"
             exit 0
@@ -60,7 +60,8 @@ echo
 # Get script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_PATH="$SCRIPT_DIR/src/SQLite.Benchmark/SQLite.Benchmark.csproj"
-OUTPUT_PATH="$SCRIPT_DIR/bin/$CONFIGURATION/net472"
+# Since BaseOutputPath is removed, binaries are now in the project's local bin folder
+OUTPUT_PATH="$SCRIPT_DIR/src/SQLite.Benchmark/bin/$CONFIGURATION/net472"
 
 # Check if project exists
 if [ ! -f "$PROJECT_PATH" ]; then
@@ -99,8 +100,9 @@ if [ -z "$BENCHMARK_TYPE" ]; then
     echo "  2. Payload size benchmarks (test with different data sizes)"
     echo "  3. Configuration benchmarks (test different SQLite settings)"
     echo "  4. All benchmarks"
+    echo "  5. Failover test (simulate service instance switching)"
     echo
-    read -p "Enter your choice (1-4): " choice
+    read -p "Enter your choice (1-5): " choice
     
     case $choice in
         1)
@@ -115,8 +117,11 @@ if [ -z "$BENCHMARK_TYPE" ]; then
         4)
             BENCHMARK_TYPE="all"
             ;;
+        5)
+            BENCHMARK_TYPE="failover"
+            ;;
         *)
-            echo -e "${RED}Invalid selection. Please run again and choose 1, 2, 3, or 4.${NC}"
+            echo -e "${RED}Invalid selection. Please run again and choose 1, 2, 3, 4, or 5.${NC}"
             exit 1
             ;;
     esac
@@ -127,6 +132,23 @@ fi
 
 # Prepare benchmark arguments
 BENCHMARK_ARGS=""
+
+# Handle failover test separately
+if [ "$BENCHMARK_TYPE" = "failover" ]; then
+    echo -e "${YELLOW}Running failover tests...${NC}"
+    echo
+    
+    dotnet test "$SCRIPT_DIR/src/SQLite.Tests/SQLite.Tests.csproj" -c "$CONFIGURATION" --filter "FullyQualifiedName~SqliteFailoverTests|FullyQualifiedName~SqliteDockerFailoverTests"
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Failover tests failed!${NC}"
+        exit 1
+    fi
+    
+    echo
+    echo -e "${GREEN}Failover tests completed successfully!${NC}"
+    exit 0
+fi
 
 # Add benchmark type argument
 case $BENCHMARK_TYPE in

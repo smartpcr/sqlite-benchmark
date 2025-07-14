@@ -233,3 +233,7 @@ benchmark-log*.txt
 # JetBrains Rider
 .idea/
 *.sln.iml
+
+**/bin/
+**/obj/
+**/publish/

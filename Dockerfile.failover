@@ -1,0 +1,33 @@
+# Build stage
+FROM mcr.microsoft.com/dotnet/framework/sdk:4.8 AS build
+WORKDIR /src
+
+# Copy project files
+COPY src/SQLite.Lib/SQLite.Lib.csproj ./SQLite.Lib/
+COPY src/SQLite.Failover/SQLite.Failover.csproj ./SQLite.Failover/
+
+# Restore dependencies
+RUN dotnet restore SQLite.Failover/SQLite.Failover.csproj
+
+# Copy source code
+COPY src/SQLite.Lib/ ./SQLite.Lib/
+COPY src/SQLite.Failover/ ./SQLite.Failover/
+
+# Build the application
+RUN dotnet build SQLite.Failover/SQLite.Failover.csproj -c Release -o /app/build
+
+# Publish the application
+RUN dotnet publish SQLite.Failover/SQLite.Failover.csproj -c Release -o /app/publish
+
+# Runtime stage
+FROM mcr.microsoft.com/dotnet/framework/runtime:4.8
+WORKDIR /app
+
+# Copy published application
+COPY --from=build /app/publish .
+
+# Create volume mount point for database
+VOLUME ["/data"]
+
+# Set entrypoint
+ENTRYPOINT ["SQLite.Failover.exe"]

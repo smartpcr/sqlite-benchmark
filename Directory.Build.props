@@ -5,16 +5,13 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
-    
+
     <!-- Assembly info -->
     <Product>SQLite Benchmark</Product>
     <Company>Your Company</Company>
     <Copyright>Copyright © $(Company) $([System.DateTime]::Now.Year)</Copyright>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
-
-    <!-- Output paths -->
-    <BaseOutputPath>$(MSBuildThisFileDirectory)bin\</BaseOutputPath>
 
     <!-- Central package management -->
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>

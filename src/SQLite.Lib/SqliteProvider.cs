@@ -488,6 +488,22 @@ namespace SQLite.Lib
         }
 
 
+        public TResult ExecuteScalar<TResult>(string sql)
+        {
+            using (var connection = this.CreateConnection())
+            {
+                connection.Open();
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.CommandText = sql;
+                    var result = cmd.ExecuteScalar();
+                    if (result == null || result == DBNull.Value)
+                        return default(TResult);
+                    return (TResult)Convert.ChangeType(result, typeof(TResult));
+                }
+            }
+        }
+
         public void Vacuum()
         {
             this.ExecuteCommand("VACUUM");
