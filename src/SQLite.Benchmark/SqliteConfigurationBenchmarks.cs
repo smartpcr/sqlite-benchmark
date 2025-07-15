@@ -26,17 +26,17 @@ namespace SQLite.Benchmark
         private List<long> _existingIds = null!;
 
         // Configuration parameters
-        [Params("-500", "-2000", "-5000")] // 500KB, 2MB, 5MB in bytes
-        public string CacheSize { get; set; }
+        [Params(-500, -2000, -5000)] // 500KB, 2MB, 5MB in bytes
+        public int CacheSize { get; set; }
 
-        [Params("1024", "4096")] // 1KB, 4KB
-        public string PageSize { get; set; }
+        [Params(1024, 4096)] // 1KB, 4KB
+        public int PageSize { get; set; }
 
-        [Params("WAL", "DELETE", "MEMORY")]
-        public string JournalMode { get; set; }
+        [Params(JournalMode.WAL, JournalMode.Delete, JournalMode.Memory)]
+        public JournalMode JournalMode { get; set; }
 
-        [Params("OFF", "NORMAL", "FULL")]
-        public string SynchronousMode { get; set; }
+        [Params(SynchronousMode.Off, SynchronousMode.Normal, SynchronousMode.Full)]
+        public SynchronousMode SynchronousMode { get; set; }
 
         [Params(true, false)]
         public bool EnableForeignKeys { get; set; }
@@ -58,17 +58,14 @@ namespace SQLite.Benchmark
             _dbPath = Path.Combine(SqliteConfigurationBenchmarks.DbFolder, $"config_benchmark_{Guid.NewGuid()}.db");
             var connectionString = $"Data Source={_dbPath};Version=3;";
 
-            // Convert cache size from bytes to pages (divide by page size)
-            var cacheSizeInPages = (int.Parse(CacheSize) / int.Parse(PageSize)).ToString();
-
             var config = new SqliteConfiguration
             {
-                CacheSize = cacheSizeInPages,
-                PageSize = PageSize,
-                JournalMode = JournalMode,
-                SynchronousMode = SynchronousMode,
-                BusyTimeout = "5000", // Fixed at 5 seconds
-                EnableForeignKeys = EnableForeignKeys
+                CacheSize = this.CacheSize,
+                PageSize = this.PageSize,
+                JournalMode = this.JournalMode,
+                SynchronousMode = this.SynchronousMode,
+                BusyTimeout = 5000, // Fixed at 5 seconds
+                EnableForeignKeys = this.EnableForeignKeys
             };
 
             _provider = new ConfigurableSqliteProvider<BenchmarkEntity>(connectionString, config);
@@ -272,15 +269,6 @@ namespace SQLite.Benchmark
             AddDiagnoser(MemoryDiagnoser.Default);
             AddColumnProvider(DefaultColumnProviders.Instance);
             AddLogger(ConsoleLogger.Default);
-
-            // Add custom columns to show configuration
-            AddColumn(new TagColumn("Cache", name => name.CacheSize));
-            AddColumn(new TagColumn("Page", name => name.PageSize));
-            AddColumn(new TagColumn("Journal", name => name.JournalMode));
-            AddColumn(new TagColumn("Sync", name => name.SynchronousMode));
-            AddColumn(new TagColumn("PayloadSize", name => name.PayloadSize));
-            AddColumn(new TagColumn("ForeignKeys", name => name.EnableForeignKeys.ToString()));
-
             WithSummaryStyle(SummaryStyle.Default.WithRatioStyle(RatioStyle.Trend));
         }
     }

@@ -7,8 +7,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Serilog;
 using Serilog.Extensions.Logging;
+using SQLite.Failover;
 using SQLite.Lib;
-using SQLite.Lib.Models;
 
 namespace SQLite.Tests
 {

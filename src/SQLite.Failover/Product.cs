@@ -1,4 +1,4 @@
-namespace SQLite.Lib.Models
+namespace SQLite.Failover
 {
     public class Product
     {

@@ -18,6 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\SQLite.Failover\SQLite.Failover.csproj" />
     <ProjectReference Include="..\SQLite.Lib\SQLite.Lib.csproj" />
   </ItemGroup>
 

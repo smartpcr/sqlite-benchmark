@@ -1,6 +1,5 @@
 using System;
 using System.Data.SQLite;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using CommandLine;
@@ -8,7 +7,6 @@ using Microsoft.Extensions.Logging;
 using Serilog;
 using Serilog.Extensions.Logging;
 using SQLite.Lib;
-using SQLite.Lib.Models;
 
 namespace SQLite.Failover
 {
@@ -61,7 +59,7 @@ namespace SQLite.Failover
             var loggerFactory = new SerilogLoggerFactory(logger);
             var instanceLogger = loggerFactory.CreateLogger<SqliteProvider<Product>>();
 
-            logger.Information("Starting {Instance} - Mode: {Mode}, Loops: {Loops}, Database: {Database}", 
+            logger.Information("Starting {Instance} - Mode: {Mode}, Loops: {Loops}, Database: {Database}",
                 options.InstanceName, options.Mode, options.Loops, options.DatabasePath);
 
             try
@@ -77,7 +75,7 @@ namespace SQLite.Failover
                 var connectionString = $"Data Source={options.DatabasePath};Version=3;Journal Mode=WAL;Busy Timeout={options.RetryTimeout};";
 
                 var provider = new SqliteProvider<Product>(connectionString, instanceLogger);
-                
+
                 if (options.Mode.ToLower() == "init")
                 {
                     InitializeDatabase(provider, options.ProductCount, logger);
@@ -103,7 +101,7 @@ namespace SQLite.Failover
             }
             catch (SQLiteException ex) when (ex.ResultCode == SQLiteErrorCode.Busy)
             {
-                logger.Error("Failed to acquire database lock after {Timeout}ms: {Message}", 
+                logger.Error("Failed to acquire database lock after {Timeout}ms: {Message}",
                     options.RetryTimeout, ex.Message);
                 return 2;
             }
@@ -171,7 +169,7 @@ namespace SQLite.Failover
                         using (var transaction = provider.BeginTransaction())
                         {
                             var products = provider.GetAll().ToList();
-                            logger.Information("{Instance} - Loop {Loop}/{Total}: Updating {Count} products", 
+                            logger.Information("{Instance} - Loop {Loop}/{Total}: Updating {Count} products",
                                 instanceName, loop, loops, products.Count);
 
                             foreach (var product in products)
@@ -181,16 +179,16 @@ namespace SQLite.Failover
                             }
                         }
 
-                        logger.Information("{Instance} - Loop {Loop}/{Total}: Completed successfully", 
+                        logger.Information("{Instance} - Loop {Loop}/{Total}: Completed successfully",
                             instanceName, loop, loops);
                         success = true;
                     }
                     catch (SQLiteException ex) when (ex.ResultCode == SQLiteErrorCode.Busy)
                     {
                         retryCount++;
-                        logger.Warning("{Instance} - Loop {Loop}: Database locked, retry {Retry}/{Max}", 
+                        logger.Warning("{Instance} - Loop {Loop}: Database locked, retry {Retry}/{Max}",
                             instanceName, loop, retryCount, maxRetries);
-                        
+
                         Thread.Sleep(1000 * retryCount); // Exponential backoff
                     }
                 }
@@ -208,7 +206,7 @@ namespace SQLite.Failover
             var finalProducts = provider.GetAll().Take(5).ToList();
             foreach (var product in finalProducts)
             {
-                logger.Information("{Instance} - Final price for {Name}: ${Price}", 
+                logger.Information("{Instance} - Final price for {Name}: ${Price}",
                     instanceName, product.Name, product.Price);
             }
         }
