@@ -19,7 +19,7 @@ namespace SQLite.Lib.Serialization
         /// </summary>
         /// <typeparam name="T">The entity type</typeparam>
         /// <returns>Appropriate serializer instance</returns>
-        public static ISerializer<T> CreateSerializer<T>() where T : class
+        public static ISerializer<T> GetSerializer<T>() where T : class
         {
             var type = typeof(T);
 

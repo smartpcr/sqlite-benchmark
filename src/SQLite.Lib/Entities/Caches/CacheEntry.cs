@@ -9,6 +9,7 @@ namespace SQLite.Lib.Entities.Caches
     using System;
     using System.Runtime.Serialization;
     using Newtonsoft.Json;
+    using SQLite.Lib.Contracts;
     using SQLite.Lib.Models;
 
     /// <summary>
@@ -17,7 +18,7 @@ namespace SQLite.Lib.Entities.Caches
     /// </summary>
     /// <typeparam name="T">The type of the cached value.</typeparam>
     [DataContract]
-    public class CacheEntry<T> : BaseEntity<string>
+    public class CacheEntry<T> : BaseEntity<string> where T : class, IEntity<string>
     {
         /// <summary>
         /// Gets or sets the cached value.

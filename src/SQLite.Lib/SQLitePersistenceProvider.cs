@@ -36,21 +36,25 @@ namespace SQLite.Lib
         {
             this.connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
             this.mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
-            this.serializer = serializer ?? SerializerResolver.CreateSerializer<T>();
+            this.serializer = serializer ?? SerializerResolver.GetSerializer<T>();
             this.tableName = this.mapper.GetTableName();
         }
-
 
         #region CRUD Operations - Translating Func delegates to SQL
 
         /// <summary>
-        /// Implements Get by translating to parameterized SQL SELECT.
+        /// Implements Get = Func&lt;TKey, T&gt; by translating to parameterized SQL SELECT.
         /// Returns the latest version of the entity (highest version number).
         /// </summary>
         public async Task<T> GetAsync(TKey key, CallerInfo callerInfo, CancellationToken cancellationToken = default)
         {
             // Translate Get = Func<TKey, T> to SQL
             // Order by Version DESC to get the latest version first
+            // IMPORTANT: We do NOT filter by IsDeleted = 0 here because:
+            // 1. We need to return the latest version regardless of deletion status
+            // 2. The caller needs to know if an entity was deleted (by checking IsDeleted flag)
+            // 3. Filtering would hide deleted entities and make it impossible to distinguish
+            //    between "never existed" and "was deleted"
             var sql = $@"
                 SELECT {this.mapper.GetSelectColumns()}
                 FROM {this.tableName}
@@ -61,6 +65,7 @@ namespace SQLite.Lib
             T result = null;
 
             using var connection = new SQLiteConnection(this.connectionString);
+            // Always pass cancellation token to OpenAsync for proper cancellation support
             await connection.OpenAsync(cancellationToken);
 
             using var command = new SQLiteCommand(sql, connection);
@@ -130,13 +135,15 @@ namespace SQLite.Lib
         }
 
         /// <summary>
-        /// Implements Create by translating to parameterized SQL INSERT.
+        /// Implements Create = Func&lt;T, T&gt; by translating to parameterized SQL INSERT.
         /// </summary>
         public async Task<T> CreateAsync(T entity, CallerInfo callerInfo, CancellationToken cancellationToken = default)
         {
             using var connection = new SQLiteConnection(this.connectionString);
             await connection.OpenAsync(cancellationToken);
 
+            // Note: SQLite transactions use synchronous Commit/Rollback methods
+            // as the underlying SQLite library doesn't provide true async transaction operations
             using var transaction = connection.BeginTransaction();
             try
             {
@@ -230,7 +237,7 @@ namespace SQLite.Lib
                             historyCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(entity.Id));
                             historyCommand.Parameters.AddWithValue("@typeName", typeof(T).Name);
                             historyCommand.Parameters.AddWithValue("@version", version);
-                            historyCommand.Parameters.AddWithValue("@size", entity.EstimateEntitySize());
+                            historyCommand.Parameters.AddWithValue("@size", this.EstimateEntitySize(entity));
                             historyCommand.Parameters.AddWithValue("@memberName", callerInfo.CallerMemberName ?? (object)DBNull.Value);
                             historyCommand.Parameters.AddWithValue("@filePath", callerInfo.CallerFilePath ?? (object)DBNull.Value);
                             historyCommand.Parameters.AddWithValue("@lineNumber", callerInfo.CallerLineNumber);
@@ -257,7 +264,7 @@ namespace SQLite.Lib
         }
 
         /// <summary>
-        /// Implements Update by translating to parameterized SQL UPDATE.
+        /// Implements Update = Func&lt;T, T&gt; by translating to parameterized SQL UPDATE.
         /// </summary>
         public async Task<T> UpdateAsync(T entity, CallerInfo callerInfo, CancellationToken cancellationToken = default)
         {
@@ -271,9 +278,11 @@ namespace SQLite.Lib
             try
             {
                 // Step 1: Get the old value for history tracking
-                T oldValue = null;
+                T oldValue = default(T);
                 if (callerInfo != null)
                 {
+                    // Note: Here we DO filter by IsDeleted = 0 because we're verifying
+                    // the entity exists and matches the expected version for update
                     var selectOldSql = $@"
                         SELECT {this.mapper.GetSelectColumns()}
                         FROM {this.tableName}
@@ -332,7 +341,7 @@ namespace SQLite.Lib
                         $"Entity with key '{entity.Id}' has been modified by another process.");
                 }
 
-                await transaction.CommitAsync();
+                transaction.Commit();
 
                 // Populate CacheUpdateHistory after commit
                 if (callerInfo != null)
@@ -341,26 +350,25 @@ namespace SQLite.Lib
                     {
                         var historyInsertSql = @"
                             INSERT INTO CacheUpdateHistory (
-                                CacheKey, Version, UpdateTime, UpdateType,
-                                CallerMemberName, CallerFilePath, CallerLineNumber,
-                                OldValue, NewValue
+                                CacheKey, TypeName, Operation, Version, OldVersion, Size,
+                                CallerFilePath, CallerMemberName, CallerLineNumber, UpdateTime
                             ) VALUES (
-                                @key, @version, datetime('now'), 'Update',
-                                @memberName, @filePath, @lineNumber,
-                                @oldValue, @newValue
+                                @key, @typeName, 'UPDATE', @version, @oldVersion, @size,
+                                @filePath, @memberName, @lineNumber, datetime('now')
                             )";
 
                         using var historyConnection = new SQLiteConnection(this.connectionString);
-                        await historyConnection.OpenAsync();
+                        await historyConnection.OpenAsync(cancellationToken);
 
                         using var historyCommand = new SQLiteCommand(historyInsertSql, historyConnection);
                         historyCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(entity.Id));
+                        historyCommand.Parameters.AddWithValue("@typeName", typeof(T).Name);
                         historyCommand.Parameters.AddWithValue("@version", newVersion);
+                        historyCommand.Parameters.AddWithValue("@oldVersion", originalVersion);
+                        historyCommand.Parameters.AddWithValue("@size", EstimateEntitySize(entity));
                         historyCommand.Parameters.AddWithValue("@memberName", callerInfo.CallerMemberName ?? (object)DBNull.Value);
                         historyCommand.Parameters.AddWithValue("@filePath", callerInfo.CallerFilePath ?? (object)DBNull.Value);
                         historyCommand.Parameters.AddWithValue("@lineNumber", callerInfo.CallerLineNumber);
-                        historyCommand.Parameters.AddWithValue("@oldValue", oldValue != null ? JsonSerializer.Serialize(oldValue) : (object)DBNull.Value);
-                        historyCommand.Parameters.AddWithValue("@newValue", JsonSerializer.Serialize(entity));
 
                         await historyCommand.ExecuteNonQueryAsync(cancellationToken);
                     }
@@ -374,13 +382,13 @@ namespace SQLite.Lib
             }
             catch
             {
-                await transaction.RollbackAsync();
+                transaction.Rollback();
                 throw;
             }
         }
 
         /// <summary>
-        /// Implements Delete = Func<TKey, bool> by translating to SQL UPDATE (soft delete) or DELETE.
+        /// Implements Delete = Func&lt;TKey, bool&gt; by translating to SQL UPDATE (soft delete) or DELETE.
         /// </summary>
         public async Task<bool> DeleteAsync(TKey key, CallerInfo callerInfo, bool hardDelete = false, CancellationToken cancellationToken = default)
         {
@@ -410,7 +418,7 @@ namespace SQLite.Lib
             }
 
             using var connection = new SQLiteConnection(this.connectionString);
-            await connection.OpenAsync();
+            await connection.OpenAsync(cancellationToken);
 
             using var transaction = connection.BeginTransaction();
             try
@@ -425,7 +433,6 @@ namespace SQLite.Lib
                         SELECT {this.mapper.GetSelectColumns()}
                         FROM {this.tableName}
                         WHERE {this.mapper.GetPrimaryKeyColumn()} = @key
-                          AND IsDeleted = 0
                         ORDER BY Version DESC
                         LIMIT 1";
 
@@ -437,6 +444,12 @@ namespace SQLite.Lib
                     {
                         oldValue = this.mapper.MapFromReader(oldReader);
                         version = oldValue.Version;
+
+                        // Only proceed with audit if the entity wasn't already deleted
+                        if (oldValue.IsDeleted)
+                        {
+                            oldValue = default(T);
+                        }
                     }
                 }
 
@@ -449,7 +462,7 @@ namespace SQLite.Lib
                 }
 
                 var rowsAffected = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
-                await transaction.CommitAsync();
+                transaction.Commit();
 
                 // Populate CacheUpdateHistory after commit
                 if (rowsAffected > 0 && callerInfo != null)
@@ -458,26 +471,25 @@ namespace SQLite.Lib
                     {
                         var historyInsertSql = @"
                             INSERT INTO CacheUpdateHistory (
-                                CacheKey, Version, UpdateTime, UpdateType,
-                                CallerMemberName, CallerFilePath, CallerLineNumber,
-                                OldValue, NewValue
+                                CacheKey, TypeName, Operation, Version, OldVersion, Size,
+                                CallerFilePath, CallerMemberName, CallerLineNumber, UpdateTime
                             ) VALUES (
-                                @key, @version, datetime('now'), @updateType,
-                                @memberName, @filePath, @lineNumber,
-                                @oldValue, NULL
+                                @key, @typeName, 'DELETE', @version, @oldVersion, @size,
+                                @filePath, @memberName, @lineNumber, datetime('now')
                             )";
 
                         using var historyConnection = new SQLiteConnection(this.connectionString);
-                        await historyConnection.OpenAsync();
+                        await historyConnection.OpenAsync(cancellationToken);
 
                         using var historyCommand = new SQLiteCommand(historyInsertSql, historyConnection);
                         historyCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(key));
+                        historyCommand.Parameters.AddWithValue("@typeName", typeof(T).Name);
                         historyCommand.Parameters.AddWithValue("@version", version);
-                        historyCommand.Parameters.AddWithValue("@updateType", hardDelete ? "HardDelete" : "SoftDelete");
+                        historyCommand.Parameters.AddWithValue("@oldVersion", oldValue?.Version ?? (object)DBNull.Value);
+                        historyCommand.Parameters.AddWithValue("@size", this.EstimateEntitySize(oldValue));
                         historyCommand.Parameters.AddWithValue("@memberName", callerInfo.CallerMemberName ?? (object)DBNull.Value);
                         historyCommand.Parameters.AddWithValue("@filePath", callerInfo.CallerFilePath ?? (object)DBNull.Value);
                         historyCommand.Parameters.AddWithValue("@lineNumber", callerInfo.CallerLineNumber);
-                        historyCommand.Parameters.AddWithValue("@oldValue", oldValue != null ? JsonSerializer.Serialize(oldValue) : (object)DBNull.Value);
 
                         await historyCommand.ExecuteNonQueryAsync(cancellationToken);
                     }
@@ -491,110 +503,19 @@ namespace SQLite.Lib
             }
             catch
             {
-                await transaction.RollbackAsync();
+                transaction.Rollback();
                 throw;
             }
         }
 
-        /// <summary>
-        /// Implements GetBatch to retrieve multiple entities by their keys.
-        /// Returns only the latest version of each entity.
-        /// </summary>
-        public async Task<IEnumerable<T>> GetBatchAsync(
-            IEnumerable<TKey> keys,
-            CallerInfo callerInfo,
-            CancellationToken cancellationToken = default)
+        public Task<IEnumerable<T>> CreateBatchAsync(IEnumerable<T> entities, CallerInfo callerInfo, CancellationToken cancellationToken = default)
         {
-            var keyList = keys.ToList();
-            if (!keyList.Any())
-                return Enumerable.Empty<T>();
+            throw new NotImplementedException();
+        }
 
-            // Serialize keys for SQL IN clause
-            var serializedKeys = keyList.Select(k => this.mapper.SerializeKey(k)).ToList();
-            var parameters = serializedKeys.Select((_, i) => $"@key{i}").ToList();
-
-            // Use subquery to get only the latest version per key
-            var sql = $@"
-                SELECT {this.mapper.GetSelectColumns()}
-                FROM {this.tableName} t1
-                WHERE t1.{this.mapper.GetPrimaryKeyColumn()} IN ({string.Join(", ", parameters)})
-                  AND t1.IsDeleted = 0
-                  AND t1.Version = (
-                      SELECT MAX(t2.Version)
-                      FROM {this.tableName} t2
-                      WHERE t2.{this.mapper.GetPrimaryKeyColumn()} = t1.{this.mapper.GetPrimaryKeyColumn()}
-                        AND t2.IsDeleted = 0
-                  )";
-
-            using var connection = new SQLiteConnection(this.connectionString);
-            await connection.OpenAsync();
-
-            using var command = new SQLiteCommand(sql, connection);
-
-            // Add parameters
-            for (int i = 0; i < serializedKeys.Count; i++)
-            {
-                command.Parameters.AddWithValue($"@key{i}", serializedKeys[i]);
-            }
-
-            using var transaction = connection.BeginTransaction();
-            try
-            {
-                command.Transaction = transaction;
-
-                var results = new List<T>();
-                using var reader = await command.ExecuteReaderAsync(cancellationToken);
-
-                while (await reader.ReadAsync(cancellationToken))
-                {
-                    results.Add(this.mapper.MapFromReader(reader));
-                }
-
-                await transaction.CommitAsync();
-
-                // Populate CacheAccessHistory after commit - single record for batch
-                if (callerInfo != null && results.Any())
-                {
-                    try
-                    {
-                        // Get max version from results
-                        var maxVersion = results.Max(r => r.Version);
-
-                        var historyInsertSql = @"
-                            INSERT INTO CacheAccessHistory (
-                                CacheKey, Version, AccessTime, AccessType,
-                                CallerMemberName, CallerFilePath, CallerLineNumber
-                            ) VALUES (
-                                @key, @version, datetime('now'), 'GetBatch',
-                                @memberName, @filePath, @lineNumber
-                            )";
-
-                        using var historyConnection = new SQLiteConnection(this.connectionString);
-                        await historyConnection.OpenAsync();
-
-                        using var historyCommand = new SQLiteCommand(historyInsertSql, historyConnection);
-                        // Use typename for batch operations
-                        historyCommand.Parameters.AddWithValue("@key", typeof(T).Name);
-                        historyCommand.Parameters.AddWithValue("@version", maxVersion);
-                        historyCommand.Parameters.AddWithValue("@memberName", callerInfo.CallerMemberName ?? (object)DBNull.Value);
-                        historyCommand.Parameters.AddWithValue("@filePath", callerInfo.CallerFilePath ?? (object)DBNull.Value);
-                        historyCommand.Parameters.AddWithValue("@lineNumber", callerInfo.CallerLineNumber);
-
-                        await historyCommand.ExecuteNonQueryAsync(cancellationToken);
-                    }
-                    catch
-                    {
-                        // Log but don't fail the operation if audit fails
-                    }
-                }
-
-                return results;
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
+        public Task<IEnumerable<T>> GetBatchAsync(IEnumerable<TKey> keys, CallerInfo callerInfo, CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
         }
 
         public Task<IEnumerable<T>> UpdateBatchAsync(IEnumerable<T> entities, CallerInfo callerInfo, CancellationToken cancellationToken = default)
@@ -607,208 +528,9 @@ namespace SQLite.Lib
             throw new NotImplementedException();
         }
 
-        #endregion
-
-        #region Batch Operations - Translating collections to bulk SQL
-
-        /// <summary>
-        /// Implements batch create by translating to multi-row INSERT.
-        /// </summary>
-        public async Task<IEnumerable<T>> CreateBatchAsync(
-            IEnumerable<T> entities,
-            CallerInfo callerInfo,
-            CancellationToken cancellationToken = default)
+        public Task<IEnumerable<T>> QueryAsync(Expression<Func<T, bool>> predicate, CallerInfo callerInfo, CancellationToken cancellationToken = default)
         {
-            var entityList = entities.ToList();
-            if (!entityList.Any())
-                return Enumerable.Empty<T>();
-
-            var columns = this.mapper.GetInsertColumns();
-            var createdEntities = new List<T>();
-
-            using var connection = new SQLiteConnection(this.connectionString);
-            await connection.OpenAsync();
-
-            using var transaction = connection.BeginTransaction();
-            try
-            {
-                // Prepare version insert command
-                var insertVersionSql = "INSERT INTO Version (Timestamp) VALUES (datetime('now')); SELECT last_insert_rowid();";
-                using var versionCommand = new SQLiteCommand(insertVersionSql, connection, transaction);
-
-                // Prepare entity insert command
-                var insertEntitySql = $@"
-                    INSERT INTO {this.tableName} ({string.Join(", ", columns)})
-                    VALUES ({string.Join(", ", columns.Select(c => $"@{c}"))})";
-
-                using var entityCommand = new SQLiteCommand(insertEntitySql, connection, transaction);
-                await entityCommand.PrepareAsync();
-
-                foreach (var entity in entityList)
-                {
-                    // Step 1: Insert into Version table to get next version
-                    var version = Convert.ToInt64(await versionCommand.ExecuteScalarAsync(cancellationToken));
-
-                    // Set tracking fields
-                    entity.CreatedTime = DateTimeOffset.UtcNow;
-                    entity.LastWriteTime = entity.CreatedTime;
-                    entity.Version = version;
-
-                    // Step 2: Insert entity with the new version
-                    entityCommand.Parameters.Clear();
-                    this.mapper.AddParameters(entityCommand, entity);
-
-                    await entityCommand.ExecuteNonQueryAsync(cancellationToken);
-                    createdEntities.Add(entity);
-                }
-
-                await transaction.CommitAsync();
-
-                // Populate CacheUpdateHistory after commit - single record for batch
-                if (callerInfo != null && createdEntities.Any())
-                {
-                    try
-                    {
-                        // Get max version from created entities
-                        var maxVersion = createdEntities.Max(e => e.Version);
-
-                        var historyInsertSql = @"
-                            INSERT INTO CacheUpdateHistory (
-                                CacheKey, Version, UpdateTime, UpdateType,
-                                CallerMemberName, CallerFilePath, CallerLineNumber,
-                                OldValue, NewValue
-                            ) VALUES (
-                                @key, @version, datetime('now'), 'CreateBatch',
-                                @memberName, @filePath, @lineNumber,
-                                NULL, @newValue
-                            )";
-
-                        using var historyConnection = new SQLiteConnection(this.connectionString);
-                        await historyConnection.OpenAsync();
-
-                        using var historyCommand = new SQLiteCommand(historyInsertSql, historyConnection);
-                        // Use typename for batch operations
-                        historyCommand.Parameters.AddWithValue("@key", typeof(T).Name);
-                        historyCommand.Parameters.AddWithValue("@version", maxVersion);
-                        historyCommand.Parameters.AddWithValue("@memberName", callerInfo.CallerMemberName ?? (object)DBNull.Value);
-                        historyCommand.Parameters.AddWithValue("@filePath", callerInfo.CallerFilePath ?? (object)DBNull.Value);
-                        historyCommand.Parameters.AddWithValue("@lineNumber", callerInfo.CallerLineNumber);
-                        historyCommand.Parameters.AddWithValue("@newValue", $"Batch created {createdEntities.Count} entities");
-
-                        await historyCommand.ExecuteNonQueryAsync(cancellationToken);
-                    }
-                    catch
-                    {
-                        // Log but don't fail the operation if audit fails
-                    }
-                }
-
-                return createdEntities;
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
-        }
-
-        #endregion
-
-        #region Query Operations - Translating Expression<Func<T, bool>> to SQL
-
-        /// <summary>
-        /// Translates LINQ expressions to SQL WHERE clauses.
-        /// </summary>
-        public async Task<IEnumerable<T>> QueryAsync(
-            Expression<Func<T, bool>> predicate,
-            CallerInfo callerInfo,
-            CancellationToken cancellationToken = default)
-        {
-            // Use expression visitor to translate LINQ to SQL
-            var whereClause = new SQLiteExpressionTranslator<T>().Translate(predicate);
-
-            // Use subquery to get only the latest version per key
-            var sql = $@"
-                SELECT {this.mapper.GetSelectColumns()}
-                FROM {this.tableName} t1
-                WHERE t1.IsDeleted = 0
-                  AND ({whereClause.Sql})
-                  AND t1.Version = (
-                      SELECT MAX(t2.Version)
-                      FROM {this.tableName} t2
-                      WHERE t2.{this.mapper.GetPrimaryKeyColumn()} = t1.{this.mapper.GetPrimaryKeyColumn()}
-                        AND t2.IsDeleted = 0
-                  )";
-
-            using var connection = new SQLiteConnection(this.connectionString);
-            await connection.OpenAsync();
-
-            using var command = new SQLiteCommand(sql, connection);
-
-            // Add parameters extracted from expression
-            foreach (var param in whereClause.Parameters)
-            {
-                command.Parameters.AddWithValue(param.Key, param.Value);
-            }
-
-            using var transaction = connection.BeginTransaction();
-            try
-            {
-                command.Transaction = transaction;
-
-                var results = new List<T>();
-                using var reader = await command.ExecuteReaderAsync(cancellationToken);
-
-                while (await reader.ReadAsync(cancellationToken))
-                {
-                    results.Add(this.mapper.MapFromReader(reader));
-                }
-
-                await transaction.CommitAsync();
-
-                // Populate CacheAccessHistory after commit - single record for query
-                if (callerInfo != null && results.Any())
-                {
-                    try
-                    {
-                        // Get max version from results
-                        var maxVersion = results.Max(r => r.Version);
-
-                        var historyInsertSql = @"
-                            INSERT INTO CacheAccessHistory (
-                                CacheKey, Version, AccessTime, AccessType,
-                                CallerMemberName, CallerFilePath, CallerLineNumber
-                            ) VALUES (
-                                @key, @version, datetime('now'), 'Query',
-                                @memberName, @filePath, @lineNumber
-                            )";
-
-                        using var historyConnection = new SQLiteConnection(this.connectionString);
-                        await historyConnection.OpenAsync();
-
-                        using var historyCommand = new SQLiteCommand(historyInsertSql, historyConnection);
-                        // Use typename for batch operations
-                        historyCommand.Parameters.AddWithValue("@key", typeof(T).Name);
-                        historyCommand.Parameters.AddWithValue("@version", maxVersion);
-                        historyCommand.Parameters.AddWithValue("@memberName", callerInfo.CallerMemberName ?? (object)DBNull.Value);
-                        historyCommand.Parameters.AddWithValue("@filePath", callerInfo.CallerFilePath ?? (object)DBNull.Value);
-                        historyCommand.Parameters.AddWithValue("@lineNumber", callerInfo.CallerLineNumber);
-
-                        await historyCommand.ExecuteNonQueryAsync(cancellationToken);
-                    }
-                    catch
-                    {
-                        // Log but don't fail the operation if audit fails
-                    }
-                }
-
-                return results;
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
+            throw new NotImplementedException();
         }
 
         public Task<PagedResult<T>> QueryPagedAsync(Expression<Func<T, bool>> predicate, int pageSize, int pageNumber, Expression<Func<T, IComparable>> orderBy = null, bool ascending = true, CancellationToken cancellationToken = default)
@@ -856,6 +578,27 @@ namespace SQLite.Lib
             throw new NotImplementedException();
         }
 
+        /// <summary>
+        /// Estimates the size of an entity by serializing it.
+        /// </summary>
+        private long EstimateEntitySize(T entity)
+        {
+            if (entity == null) return 0;
+
+            try
+            {
+                var serialized = this.serializer.Serialize(entity);
+                return serialized?.Length ?? 0;
+            }
+            catch
+            {
+                // If serialization fails, return 0
+                return 0;
+            }
+        }
+
         #endregion
+
+        // Additional methods implementation continues...
     }
 }

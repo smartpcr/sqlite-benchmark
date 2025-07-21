@@ -2,7 +2,7 @@
 
 ## E.1 CRUD Operations Translation
 
-This appendix shows how the SQLitePersistenceProvider translates generic CRUD operations defined as `Func<TKey, T>`, `Func<T, T>`, etc., into parameterized SQL statements.
+This appendix shows how the SQLitePersistenceProvider translates generic CRUD operations defined as `Func&lt;TKey, T&gt;`, `Func&lt;T, T&gt;`, etc., into parameterized SQL statements.
 
 ### SQLitePersistenceProvider Core Implementation
 
@@ -33,7 +33,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
         private readonly string tableName;
 
         public SQLitePersistenceProvider(
-            string connectionString, 
+            string connectionString,
             ISQLiteEntityMapper<T, TKey> mapper,
             ISerializer<T> serializer = null)
         {
@@ -47,7 +47,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
         #region CRUD Operations - Translating Func delegates to SQL
 
         /// <summary>
-        /// Implements Get = Func<TKey, T> by translating to parameterized SQL SELECT.
+        /// Implements Get = Func&lt;TKey, T&gt; by translating to parameterized SQL SELECT.
         /// Returns the latest version of the entity (highest version number).
         /// </summary>
         public async Task<T> GetAsync(TKey key, CallerInfo callerInfo, CancellationToken cancellationToken = default)
@@ -117,7 +117,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
                     // 4. Allow immediate release of the main connection back to the pool
                     using var historyConnection = new SQLiteConnection(this.connectionString);
                     await historyConnection.OpenAsync(cancellationToken);
-                    
+
                     using var historyCommand = new SQLiteCommand(historyInsertSql, historyConnection);
                     historyCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(key));
                     historyCommand.Parameters.AddWithValue("@typeName", typeof(T).Name);
@@ -139,7 +139,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
         }
 
         /// <summary>
-        /// Implements Create = Func<T, T> by translating to parameterized SQL INSERT.
+        /// Implements Create = Func&lt;T, T&gt; by translating to parameterized SQL INSERT.
         /// </summary>
         public async Task<T> CreateAsync(T entity, CallerInfo callerInfo, CancellationToken cancellationToken = default)
         {
@@ -158,10 +158,10 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
                     WHERE {this.mapper.GetPrimaryKeyColumn()} = @key
                     ORDER BY Version DESC
                     LIMIT 1";
-                
+
                 using var checkCommand = new SQLiteCommand(checkExistsSql, connection, transaction);
                 checkCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(entity.Id));
-                
+
                 using var checkReader = await checkCommand.ExecuteReaderAsync(cancellationToken);
                 if (await checkReader.ReadAsync(cancellationToken))
                 {
@@ -184,7 +184,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
 
                 // Step 2: Insert into Version table to get next version
                 var insertVersionSql = "INSERT INTO Version DEFAULT VALUES; SELECT last_insert_rowid();";
-                
+
                 using var versionCommand = new SQLiteCommand(insertVersionSql, connection, transaction);
                 var version = Convert.ToInt64(await versionCommand.ExecuteScalarAsync(cancellationToken));
                 entity.Version = version;
@@ -214,7 +214,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
                 {
                     var result = this.mapper.MapFromReader(reader);
                     transaction.Commit();
-                    
+
                     // Populate CacheUpdateHistory after commit
                     if (callerInfo != null)
                     {
@@ -236,7 +236,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
                             // 4. Compliance: audit trails remain immutable and independent
                             using var historyConnection = new SQLiteConnection(this.connectionString);
                             await historyConnection.OpenAsync(cancellationToken);
-                            
+
                             using var historyCommand = new SQLiteCommand(historyInsertSql, historyConnection);
                             historyCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(entity.Id));
                             historyCommand.Parameters.AddWithValue("@typeName", typeof(T).Name);
@@ -253,7 +253,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
                             // Log but don't fail the operation if audit fails
                         }
                     }
-                    
+
                     return result;
                 }
 
@@ -268,7 +268,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
         }
 
         /// <summary>
-        /// Implements Update = Func<T, T> by translating to parameterized SQL UPDATE.
+        /// Implements Update = Func&lt;T, T&gt; by translating to parameterized SQL UPDATE.
         /// </summary>
         public async Task<T> UpdateAsync(T entity, CallerInfo callerInfo, CancellationToken cancellationToken = default)
         {
@@ -293,24 +293,24 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
                         WHERE {this.mapper.GetPrimaryKeyColumn()} = @key
                           AND Version = @originalVersion
                           AND IsDeleted = 0";
-                    
+
                     using var selectOldCommand = new SQLiteCommand(selectOldSql, connection, transaction);
                     selectOldCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(entity.Id));
                     selectOldCommand.Parameters.AddWithValue("@originalVersion", originalVersion);
-                    
+
                     using var oldReader = await selectOldCommand.ExecuteReaderAsync(cancellationToken);
                     if (await oldReader.ReadAsync(cancellationToken))
                     {
                         oldValue = this.mapper.MapFromReader(oldReader);
                     }
                 }
-                
+
                 // Step 2: Insert into Version table to get next version
                 var insertVersionSql = "INSERT INTO Version (Timestamp) VALUES (datetime('now')); SELECT last_insert_rowid();";
-                
+
                 using var versionCommand = new SQLiteCommand(insertVersionSql, connection, transaction);
                 var newVersion = Convert.ToInt64(await versionCommand.ExecuteScalarAsync(cancellationToken));
-                
+
                 // Update tracking fields
                 entity.LastWriteTime = DateTimeOffset.UtcNow;
                 entity.Version = newVersion;
@@ -327,18 +327,18 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
                     WHERE {this.mapper.GetPrimaryKeyColumn()} = @key
                       AND Version = @originalVersion
                       AND IsDeleted = 0;
-                    
+
                     SELECT changes();";
 
                 using var updateCommand = new SQLiteCommand(updateSql, connection, transaction);
-                
+
                 // Add all parameters including concurrency check
                 this.mapper.AddParameters(updateCommand, entity);
                 updateCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(entity.Id));
                 updateCommand.Parameters.AddWithValue("@originalVersion", originalVersion);
 
                 var rowsAffected = Convert.ToInt32(await updateCommand.ExecuteScalarAsync(cancellationToken));
-                
+
                 if (rowsAffected == 0)
                 {
                     throw new ConcurrencyException(
@@ -363,7 +363,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
 
                         using var historyConnection = new SQLiteConnection(this.connectionString);
                         await historyConnection.OpenAsync(cancellationToken);
-                        
+
                         using var historyCommand = new SQLiteCommand(historyInsertSql, historyConnection);
                         historyCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(entity.Id));
                         historyCommand.Parameters.AddWithValue("@typeName", typeof(T).Name);
@@ -392,19 +392,19 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
         }
 
         /// <summary>
-        /// Implements Delete = Func<TKey, bool> by translating to SQL UPDATE (soft delete) or DELETE.
+        /// Implements Delete = Func&lt;TKey, bool&gt; by translating to SQL UPDATE (soft delete) or DELETE.
         /// </summary>
         public async Task<bool> DeleteAsync(TKey key, CallerInfo callerInfo, bool hardDelete = false, CancellationToken cancellationToken = default)
         {
             string sql;
-            
+
             if (hardDelete)
             {
                 // Translate to SQL DELETE for hard delete
                 sql = $@"
                     DELETE FROM {this.tableName}
                     WHERE {this.mapper.GetPrimaryKeyColumn()} = @key;
-                    
+
                     SELECT changes();";
             }
             else
@@ -417,7 +417,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
                         LastWriteTime = @lastWriteTime
                     WHERE {this.mapper.GetPrimaryKeyColumn()} = @key
                       AND IsDeleted = 0;
-                    
+
                     SELECT changes();";
             }
 
@@ -430,7 +430,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
                 // Get the old value for history tracking
                 T oldValue = default(T);
                 long version = 0;
-                
+
                 if (callerInfo != null)
                 {
                     var selectOldSql = $@"
@@ -439,16 +439,16 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
                         WHERE {this.mapper.GetPrimaryKeyColumn()} = @key
                         ORDER BY Version DESC
                         LIMIT 1";
-                    
+
                     using var selectOldCommand = new SQLiteCommand(selectOldSql, connection, transaction);
                     selectOldCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(key));
-                    
+
                     using var oldReader = await selectOldCommand.ExecuteReaderAsync(cancellationToken);
                     if (await oldReader.ReadAsync(cancellationToken))
                     {
                         oldValue = this.mapper.MapFromReader(oldReader);
                         version = oldValue.Version;
-                        
+
                         // Only proceed with audit if the entity wasn't already deleted
                         if (oldValue.IsDeleted)
                         {
@@ -459,7 +459,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
 
                 using var command = new SQLiteCommand(sql, connection, transaction);
                 command.Parameters.AddWithValue("@key", this.mapper.SerializeKey(key));
-                
+
                 if (!hardDelete)
                 {
                     command.Parameters.AddWithValue("@lastWriteTime", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
@@ -467,7 +467,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
 
                 var rowsAffected = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
                 transaction.Commit();
-                
+
                 // Populate CacheUpdateHistory after commit
                 if (rowsAffected > 0 && callerInfo != null)
                 {
@@ -484,7 +484,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
 
                         using var historyConnection = new SQLiteConnection(this.connectionString);
                         await historyConnection.OpenAsync(cancellationToken);
-                        
+
                         using var historyCommand = new SQLiteCommand(historyInsertSql, historyConnection);
                         historyCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(key));
                         historyCommand.Parameters.AddWithValue("@typeName", typeof(T).Name);
@@ -502,7 +502,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
                         // Log but don't fail the operation if audit fails
                     }
                 }
-                
+
                 return rowsAffected > 0;
             }
             catch
@@ -518,7 +518,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
         private long EstimateEntitySize(T entity)
         {
             if (entity == null) return 0;
-            
+
             try
             {
                 var serialized = this.serializer.Serialize(entity);
@@ -538,7 +538,801 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
 }
 ```
 
-## E.2 Attribute-Based Entity Mapping
+## E.2 Entity Mapper Interfaces
+
+### ISQLiteEntityMapper Interface
+
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.SQLite;
+
+namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
+{
+    /// <summary>
+    /// Defines the contract for mapping entities to SQLite tables.
+    /// </summary>
+    public interface ISQLiteEntityMapper<T, TKey>
+        where T : IEntity<TKey>
+        where TKey : IEquatable<TKey>
+    {
+        string GetTableName();
+        string GetPrimaryKeyColumn();
+        List<string> GetSelectColumns();
+        List<string> GetInsertColumns();
+        List<string> GetUpdateColumns();
+        void AddParameters(SQLiteCommand command, T entity);
+        T MapFromReader(IDataReader reader);
+        string SerializeKey(TKey key);
+        TKey DeserializeKey(string serialized);
+    }
+}
+```
+
+## E.3 BaseEntityMapper Implementation (Fixed)
+
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.SQLite;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping;
+
+namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
+{
+    /// <summary>
+    /// Base mapper that uses reflection and attributes to create mappings between C# properties and database columns.
+    /// </summary>
+    /// <typeparam name="T">The entity type to map</typeparam>
+    /// <typeparam name="TKey">The key type</typeparam>
+    public class BaseEntityMapper<T, TKey> : ISQLiteEntityMapper<T, TKey>
+        where T : class, IEntity<TKey>, new()
+        where TKey : IEquatable<TKey>
+    {
+        private readonly Type entityType;
+        private readonly string tableName;
+        private readonly string schemaName;
+        private readonly Dictionary<PropertyInfo, PropertyMapping> propertyMappings;
+        private readonly List<IndexDefinition> indexes;
+        private readonly List<ForeignKeyDefinition> foreignKeys;
+        private readonly PropertyInfo primaryKeyProperty;
+        private readonly bool hasCompositeKey;
+        private readonly List<PropertyInfo> compositeKeyProperties;
+
+        public BaseEntityMapper()
+        {
+            this.entityType = typeof(T);
+            this.propertyMappings = new Dictionary<PropertyInfo, PropertyMapping>();
+            this.indexes = new List<IndexDefinition>();
+            this.foreignKeys = new List<ForeignKeyDefinition>();
+            this.compositeKeyProperties = new List<PropertyInfo>();
+
+            // Extract table information
+            var tableAttr = this.entityType.GetCustomAttribute<TableAttribute>();
+            this.tableName = tableAttr?.Name ?? this.entityType.Name;
+            this.schemaName = tableAttr?.Schema ?? "dbo";
+
+            // Build property mappings
+            this.BuildPropertyMappings();
+
+            // Validate primary key
+            if (this.primaryKeyProperty == null && !this.hasCompositeKey)
+            {
+                // Look for Id property as fallback
+                this.primaryKeyProperty = this.entityType.GetProperty("Id");
+                if (this.primaryKeyProperty == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Entity type {this.entityType.Name} must have at least one property marked with [PrimaryKey] or a property named 'Id'");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the table name without schema.
+        /// </summary>
+        public virtual string GetTableName() => this.tableName;
+
+        /// <summary>
+        /// Gets the primary key column name.
+        /// </summary>
+        public virtual string GetPrimaryKeyColumn()
+        {
+            if (this.hasCompositeKey)
+            {
+                throw new InvalidOperationException("Entity has composite key. Use GetCompositeKeyColumns() instead.");
+            }
+            return this.propertyMappings[this.primaryKeyProperty].ColumnName;
+        }
+
+        /// <summary>
+        /// Gets all column names for SELECT statements.
+        /// </summary>
+        public virtual List<string> GetSelectColumns()
+        {
+            return this.propertyMappings.Values
+                .Where(m => !m.IsNotMapped && !m.IsComputed)
+                .OrderBy(m => m.ColumnName)
+                .Select(m => m.ColumnName)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Gets column names for INSERT statements.
+        /// </summary>
+        public virtual List<string> GetInsertColumns()
+        {
+            return this.propertyMappings.Values
+                .Where(m => !m.IsNotMapped && !m.IsComputed && !m.IsAutoIncrement)
+                .OrderBy(m => m.ColumnName)
+                .Select(m => m.ColumnName)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Gets column names for UPDATE statements.
+        /// </summary>
+        public virtual List<string> GetUpdateColumns()
+        {
+            return this.propertyMappings.Values
+                .Where(m => !m.IsNotMapped && !m.IsComputed && !m.IsPrimaryKey)
+                .OrderBy(m => m.ColumnName)
+                .Select(m => m.ColumnName)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Adds parameters to a SQLite command based on entity values.
+        /// </summary>
+        public virtual void AddParameters(SQLiteCommand command, T entity)
+        {
+            foreach (var mapping in this.propertyMappings.Values.Where(m => !m.IsNotMapped && !m.IsComputed))
+            {
+                var value = mapping.PropertyInfo.GetValue(entity);
+                var paramName = $"@{mapping.ColumnName}";
+                
+                if (value == null)
+                {
+                    command.Parameters.AddWithValue(paramName, DBNull.Value);
+                }
+                else if (mapping.PropertyType == typeof(DateTimeOffset) || mapping.PropertyType == typeof(DateTimeOffset?))
+                {
+                    var dto = (DateTimeOffset)value;
+                    command.Parameters.AddWithValue(paramName, dto.ToUnixTimeSeconds());
+                }
+                else if (mapping.PropertyType == typeof(DateTime) || mapping.PropertyType == typeof(DateTime?))
+                {
+                    var dt = (DateTime)value;
+                    command.Parameters.AddWithValue(paramName, dt.ToString("yyyy-MM-dd HH:mm:ss"));
+                }
+                else if (mapping.PropertyType.IsEnum)
+                {
+                    command.Parameters.AddWithValue(paramName, value.ToString());
+                }
+                else
+                {
+                    command.Parameters.AddWithValue(paramName, value);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Maps a data reader row to an entity instance.
+        /// </summary>
+        public virtual T MapFromReader(IDataReader reader)
+        {
+            var entity = new T();
+            
+            foreach (var mapping in this.propertyMappings.Values.Where(m => !m.IsNotMapped))
+            {
+                try
+                {
+                    var ordinal = reader.GetOrdinal(mapping.ColumnName);
+                    if (reader.IsDBNull(ordinal))
+                    {
+                        if (mapping.PropertyType.IsValueType && Nullable.GetUnderlyingType(mapping.PropertyType) == null)
+                        {
+                            // Skip non-nullable value types when null
+                            continue;
+                        }
+                        mapping.PropertyInfo.SetValue(entity, null);
+                    }
+                    else
+                    {
+                        var value = reader.GetValue(ordinal);
+                        
+                        // Type conversions
+                        if (mapping.PropertyType == typeof(DateTimeOffset) || mapping.PropertyType == typeof(DateTimeOffset?))
+                        {
+                            var unixTime = Convert.ToInt64(value);
+                            value = DateTimeOffset.FromUnixTimeSeconds(unixTime);
+                        }
+                        else if (mapping.PropertyType == typeof(DateTime) || mapping.PropertyType == typeof(DateTime?))
+                        {
+                            value = DateTime.Parse(value.ToString());
+                        }
+                        else if (mapping.PropertyType.IsEnum)
+                        {
+                            value = Enum.Parse(mapping.PropertyType, value.ToString());
+                        }
+                        else if (mapping.PropertyType == typeof(bool) || mapping.PropertyType == typeof(bool?))
+                        {
+                            value = Convert.ToInt32(value) == 1;
+                        }
+                        
+                        mapping.PropertyInfo.SetValue(entity, value);
+                    }
+                }
+                catch (IndexOutOfRangeException)
+                {
+                    // Column doesn't exist in result set, skip it
+                }
+            }
+            
+            return entity;
+        }
+
+        /// <summary>
+        /// Serializes a key value to string for SQL parameters.
+        /// </summary>
+        public virtual string SerializeKey(TKey key)
+        {
+            if (key == null)
+                return null;
+            return key.ToString();
+        }
+
+        /// <summary>
+        /// Deserializes a key value from string.
+        /// </summary>
+        public virtual TKey DeserializeKey(string serialized)
+        {
+            if (string.IsNullOrEmpty(serialized))
+                return default(TKey);
+            
+            var keyType = typeof(TKey);
+            if (keyType == typeof(string))
+                return (TKey)(object)serialized;
+            if (keyType == typeof(int))
+                return (TKey)(object)int.Parse(serialized);
+            if (keyType == typeof(long))
+                return (TKey)(object)long.Parse(serialized);
+            if (keyType == typeof(Guid))
+                return (TKey)(object)Guid.Parse(serialized);
+            
+            throw new NotSupportedException($"Key type {keyType.Name} deserialization not supported");
+        }
+
+        /// <summary>
+        /// Generates CREATE TABLE SQL statement for the entity.
+        /// </summary>
+        public virtual string GenerateCreateTableSql(bool includeIfNotExists = true)
+        {
+            var sql = new StringBuilder();
+            
+            if (includeIfNotExists)
+            {
+                sql.AppendLine($"CREATE TABLE IF NOT EXISTS {this.tableName} (");
+            }
+            else
+            {
+                sql.AppendLine($"CREATE TABLE {this.tableName} (");
+            }
+
+            // Add column definitions
+            var columnDefinitions = new List<string>();
+            foreach (var mapping in this.propertyMappings.Values.Where(m => !m.IsNotMapped).OrderBy(m => m.ColumnName))
+            {
+                columnDefinitions.Add(this.GenerateColumnDefinition(mapping));
+            }
+
+            // Add primary key constraint for composite keys
+            if (this.hasCompositeKey)
+            {
+                var keyColumns = string.Join(", ", this.compositeKeyProperties
+                    .Select(p => this.propertyMappings[p].ColumnName));
+                columnDefinitions.Add($"PRIMARY KEY ({keyColumns})");
+            }
+
+            // Add foreign key constraints
+            foreach (var fk in this.foreignKeys)
+            {
+                columnDefinitions.Add(this.GenerateForeignKeyConstraint(fk));
+            }
+
+            sql.AppendLine(string.Join(",\n", columnDefinitions.Select(d => $"    {d}")));
+            sql.AppendLine(");");
+
+            return sql.ToString();
+        }
+
+        /// <summary>
+        /// Generates CREATE INDEX SQL statements for the entity.
+        /// </summary>
+        public virtual IEnumerable<string> GenerateCreateIndexSql()
+        {
+            var indexSql = new List<string>();
+
+            foreach (var index in this.indexes)
+            {
+                var sql = new StringBuilder();
+                sql.Append("CREATE ");
+                
+                if (index.IsUnique)
+                    sql.Append("UNIQUE ");
+                    
+                sql.Append($"INDEX IF NOT EXISTS {index.Name} ");
+                sql.Append($"ON {this.tableName} (");
+                sql.Append(string.Join(", ", index.Columns.OrderBy(c => c.Order).Select(c => c.ColumnName)));
+                sql.Append(");");
+
+                indexSql.Add(sql.ToString());
+            }
+
+            return indexSql;
+        }
+
+        // Protected helper methods...
+        protected virtual void BuildPropertyMappings()
+        {
+            var properties = this.entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            var indexGroups = new Dictionary<string, List<IndexColumn>>();
+
+            foreach (var property in properties)
+            {
+                // Check if property should be excluded
+                if (property.GetCustomAttribute<NotMappedAttribute>() != null)
+                {
+                    continue;
+                }
+
+                // Create property mapping
+                var mapping = this.CreatePropertyMapping(property);
+                this.propertyMappings[property] = mapping;
+
+                // Check if this is a primary key
+                var pkAttr = property.GetCustomAttribute<PrimaryKeyAttribute>();
+                if (pkAttr != null)
+                {
+                    mapping.IsPrimaryKey = true;
+                    if (pkAttr.IsComposite)
+                    {
+                        this.hasCompositeKey = true;
+                        this.compositeKeyProperties.Add(property);
+                    }
+                    else
+                    {
+                        this.primaryKeyProperty = property;
+                    }
+                }
+
+                // Process indexes
+                var indexAttrs = property.GetCustomAttributes<IndexAttribute>();
+                foreach (var indexAttr in indexAttrs)
+                {
+                    var indexName = indexAttr.Name ?? $"IX_{this.tableName}_{mapping.ColumnName}";
+                    
+                    if (!indexGroups.ContainsKey(indexName))
+                    {
+                        indexGroups[indexName] = new List<IndexColumn>();
+                    }
+
+                    indexGroups[indexName].Add(new IndexColumn
+                    {
+                        ColumnName = mapping.ColumnName,
+                        Order = indexAttr.Order,
+                        IsIncluded = indexAttr.IsIncluded
+                    });
+                }
+
+                // Process foreign keys
+                var fkAttr = property.GetCustomAttribute<ForeignKeyAttribute>();
+                if (fkAttr != null)
+                {
+                    this.foreignKeys.Add(new ForeignKeyDefinition
+                    {
+                        ConstraintName = fkAttr.Name ?? $"FK_{this.tableName}_{property.Name}",
+                        ColumnName = mapping.ColumnName,
+                        ReferencedTable = fkAttr.ReferencedTable,
+                        ReferencedColumn = fkAttr.ReferencedColumn ?? "Id",
+                        OnDelete = fkAttr.OnDelete,
+                        OnUpdate = fkAttr.OnUpdate
+                    });
+                }
+            }
+
+            // Build index definitions from grouped columns
+            foreach (var group in indexGroups)
+            {
+                this.indexes.Add(new IndexDefinition
+                {
+                    Name = group.Key,
+                    Columns = group.Value,
+                    IsUnique = false, // Would need to get from attribute
+                    IsClustered = false, // Would need to get from attribute
+                    Filter = null // Would need to get from attribute
+                });
+            }
+        }
+
+        protected virtual PropertyMapping CreatePropertyMapping(PropertyInfo property)
+        {
+            var mapping = new PropertyMapping
+            {
+                PropertyInfo = property,
+                PropertyName = property.Name,
+                PropertyType = property.PropertyType,
+                IsNotMapped = false
+            };
+
+            // Get column attribute
+            var columnAttr = property.GetCustomAttribute<ColumnAttribute>();
+            
+            // Column name
+            mapping.ColumnName = columnAttr?.Name ?? property.Name;
+            
+            // Data type
+            if (columnAttr?.SqlType != null)
+            {
+                mapping.SqlType = columnAttr.SqlType.Value;
+                mapping.Size = columnAttr.Size;
+                mapping.Precision = columnAttr.Precision;
+                mapping.Scale = columnAttr.Scale;
+            }
+            else
+            {
+                // Infer SQL type from property type
+                this.InferSqlType(property.PropertyType, mapping);
+            }
+
+            // Nullability
+            mapping.IsNullable = columnAttr?.IsNullable ?? this.IsNullableType(property.PropertyType);
+            
+            // Default value
+            mapping.DefaultValue = columnAttr?.DefaultValue;
+            mapping.DefaultConstraintName = columnAttr?.DefaultConstraintName;
+            
+            // Check constraint
+            var checkAttr = property.GetCustomAttribute<CheckAttribute>();
+            if (checkAttr != null)
+            {
+                mapping.CheckConstraint = checkAttr.Expression;
+                mapping.CheckConstraintName = checkAttr.Name ?? $"CK_{this.tableName}_{mapping.ColumnName}";
+            }
+
+            // Computed column
+            var computedAttr = property.GetCustomAttribute<ComputedAttribute>();
+            if (computedAttr != null)
+            {
+                mapping.IsComputed = true;
+                mapping.ComputedExpression = computedAttr.Expression;
+                mapping.IsPersisted = computedAttr.IsPersisted;
+            }
+
+            // Audit fields
+            var auditAttr = property.GetCustomAttribute<AuditFieldAttribute>();
+            if (auditAttr != null)
+            {
+                mapping.IsAuditField = true;
+                mapping.AuditFieldType = auditAttr.FieldType;
+            }
+
+            // Primary key
+            var pkAttr = property.GetCustomAttribute<PrimaryKeyAttribute>();
+            if (pkAttr != null)
+            {
+                mapping.IsPrimaryKey = true;
+                mapping.IsAutoIncrement = pkAttr.IsAutoIncrement;
+                mapping.SequenceName = pkAttr.SequenceName;
+            }
+
+            // Unique constraint
+            var uniqueAttr = property.GetCustomAttribute<UniqueAttribute>();
+            if (uniqueAttr != null)
+            {
+                mapping.IsUnique = true;
+                mapping.UniqueConstraintName = uniqueAttr.Name ?? $"UQ_{this.tableName}_{mapping.ColumnName}";
+            }
+
+            return mapping;
+        }
+
+        protected virtual void InferSqlType(Type clrType, PropertyMapping mapping)
+        {
+            var underlyingType = Nullable.GetUnderlyingType(clrType) ?? clrType;
+
+            if (underlyingType == typeof(string))
+            {
+                mapping.SqlType = SqlDbType.NVarChar;
+                mapping.Size = 255; // Default size
+            }
+            else if (underlyingType == typeof(int))
+            {
+                mapping.SqlType = SqlDbType.Int;
+            }
+            else if (underlyingType == typeof(long))
+            {
+                mapping.SqlType = SqlDbType.BigInt;
+            }
+            else if (underlyingType == typeof(short))
+            {
+                mapping.SqlType = SqlDbType.SmallInt;
+            }
+            else if (underlyingType == typeof(byte))
+            {
+                mapping.SqlType = SqlDbType.TinyInt;
+            }
+            else if (underlyingType == typeof(bool))
+            {
+                mapping.SqlType = SqlDbType.Bit;
+            }
+            else if (underlyingType == typeof(decimal))
+            {
+                mapping.SqlType = SqlDbType.Decimal;
+                mapping.Precision = 18;
+                mapping.Scale = 2;
+            }
+            else if (underlyingType == typeof(double))
+            {
+                mapping.SqlType = SqlDbType.Float;
+            }
+            else if (underlyingType == typeof(float))
+            {
+                mapping.SqlType = SqlDbType.Real;
+            }
+            else if (underlyingType == typeof(DateTime))
+            {
+                mapping.SqlType = SqlDbType.DateTime2;
+            }
+            else if (underlyingType == typeof(DateTimeOffset))
+            {
+                mapping.SqlType = SqlDbType.DateTimeOffset;
+            }
+            else if (underlyingType == typeof(TimeSpan))
+            {
+                mapping.SqlType = SqlDbType.Time;
+            }
+            else if (underlyingType == typeof(byte[]))
+            {
+                mapping.SqlType = SqlDbType.VarBinary;
+                mapping.Size = -1; // MAX
+            }
+            else if (underlyingType == typeof(Guid))
+            {
+                mapping.SqlType = SqlDbType.UniqueIdentifier;
+            }
+            else if (underlyingType.IsEnum)
+            {
+                mapping.SqlType = SqlDbType.Int; // Store enums as integers by default
+            }
+            else
+            {
+                // Default to NVARCHAR for complex types (will be serialized)
+                mapping.SqlType = SqlDbType.NVarChar;
+                mapping.Size = -1; // MAX
+            }
+        }
+
+        protected virtual bool IsNullableType(Type type)
+        {
+            return !type.IsValueType || Nullable.GetUnderlyingType(type) != null;
+        }
+
+        protected virtual string GenerateColumnDefinition(PropertyMapping mapping)
+        {
+            var sql = new StringBuilder();
+            sql.Append($"{mapping.ColumnName} ");
+
+            // Data type
+            sql.Append(this.GetSqlTypeString(mapping));
+
+            // Primary key with auto-increment
+            if (mapping.IsPrimaryKey && !this.hasCompositeKey)
+            {
+                sql.Append(" PRIMARY KEY");
+                if (mapping.IsAutoIncrement)
+                {
+                    sql.Append(" AUTOINCREMENT");
+                }
+            }
+
+            // Nullability
+            if (!mapping.IsNullable && !mapping.IsPrimaryKey)
+            {
+                sql.Append(" NOT NULL");
+            }
+
+            // Unique constraint
+            if (mapping.IsUnique && !mapping.IsPrimaryKey)
+            {
+                sql.Append(" UNIQUE");
+            }
+
+            // Default value
+            if (mapping.DefaultValue != null)
+            {
+                sql.Append($" DEFAULT {this.FormatDefaultValue(mapping.DefaultValue, mapping.SqlType)}");
+            }
+
+            // Check constraint
+            if (!string.IsNullOrEmpty(mapping.CheckConstraint))
+            {
+                sql.Append($" CHECK ({mapping.CheckConstraint})");
+            }
+
+            return sql.ToString();
+        }
+
+        protected virtual string GetSqlTypeString(PropertyMapping mapping)
+        {
+            // Handle SQLite type mapping
+            switch (mapping.SqlType)
+            {
+                case SqlDbType.NVarChar:
+                case SqlDbType.VarChar:
+                case SqlDbType.NChar:
+                case SqlDbType.Char:
+                    return "TEXT";
+                case SqlDbType.Int:
+                case SqlDbType.BigInt:
+                case SqlDbType.SmallInt:
+                case SqlDbType.TinyInt:
+                case SqlDbType.Bit:
+                    return "INTEGER";
+                case SqlDbType.Float:
+                case SqlDbType.Real:
+                case SqlDbType.Decimal:
+                case SqlDbType.Money:
+                case SqlDbType.SmallMoney:
+                    return "REAL";
+                case SqlDbType.Binary:
+                case SqlDbType.VarBinary:
+                case SqlDbType.Image:
+                    return "BLOB";
+                case SqlDbType.DateTime:
+                case SqlDbType.DateTime2:
+                case SqlDbType.DateTimeOffset:
+                case SqlDbType.Date:
+                case SqlDbType.Time:
+                    return "TEXT"; // SQLite stores dates as text
+                case SqlDbType.UniqueIdentifier:
+                    return "TEXT";
+                default:
+                    return "TEXT";
+            }
+        }
+
+        protected virtual string FormatDefaultValue(object value, SqlDbType sqlType)
+        {
+            if (value == null)
+                return "NULL";
+
+            if (value is string strValue)
+            {
+                return $"'{strValue.Replace("'", "''")}";
+            }
+
+            if (value is bool boolValue)
+            {
+                return boolValue ? "1" : "0";
+            }
+
+            if (value is DateTime || value is DateTimeOffset)
+            {
+                return "datetime('now')";
+            }
+
+            if (value.GetType().IsEnum)
+            {
+                return ((int)value).ToString();
+            }
+
+            return value.ToString();
+        }
+
+        protected virtual string GenerateForeignKeyConstraint(ForeignKeyDefinition fk)
+        {
+            var sql = new StringBuilder();
+            sql.Append($"CONSTRAINT {fk.ConstraintName} ");
+            sql.Append($"FOREIGN KEY ({fk.ColumnName}) ");
+            sql.Append($"REFERENCES {fk.ReferencedTable}({fk.ReferencedColumn})");
+
+            if (!string.IsNullOrEmpty(fk.OnDelete))
+            {
+                sql.Append($" ON DELETE {fk.OnDelete}");
+            }
+
+            if (!string.IsNullOrEmpty(fk.OnUpdate))
+            {
+                sql.Append($" ON UPDATE {fk.OnUpdate}");
+            }
+
+            return sql.ToString();
+        }
+    }
+}
+```
+
+## Supporting Types (PropertyMapping, IndexDefinition, etc.)
+
+These types are referenced but not defined in the original appendix. Here they are:
+
+```csharp
+namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
+{
+    /// <summary>
+    /// Represents a mapping between a C# property and a database column.
+    /// </summary>
+    public class PropertyMapping
+    {
+        public PropertyInfo PropertyInfo { get; set; }
+        public string PropertyName { get; set; }
+        public Type PropertyType { get; set; }
+        public string ColumnName { get; set; }
+        public SqlDbType SqlType { get; set; }
+        public int Size { get; set; }
+        public int Precision { get; set; }
+        public int Scale { get; set; }
+        public bool IsNullable { get; set; }
+        public object DefaultValue { get; set; }
+        public string DefaultConstraintName { get; set; }
+        public bool IsPrimaryKey { get; set; }
+        public bool IsAutoIncrement { get; set; }
+        public string SequenceName { get; set; }
+        public bool IsUnique { get; set; }
+        public string UniqueConstraintName { get; set; }
+        public bool IsComputed { get; set; }
+        public string ComputedExpression { get; set; }
+        public bool IsPersisted { get; set; }
+        public bool IsNotMapped { get; set; }
+        public bool IsAuditField { get; set; }
+        public AuditFieldType? AuditFieldType { get; set; }
+        public string CheckConstraint { get; set; }
+        public string CheckConstraintName { get; set; }
+    }
+
+    /// <summary>
+    /// Represents an index definition.
+    /// </summary>
+    public class IndexDefinition
+    {
+        public string Name { get; set; }
+        public List<IndexColumn> Columns { get; set; }
+        public bool IsUnique { get; set; }
+        public bool IsClustered { get; set; }
+        public string Filter { get; set; }
+    }
+
+    /// <summary>
+    /// Represents a column in an index.
+    /// </summary>
+    public class IndexColumn
+    {
+        public string ColumnName { get; set; }
+        public int Order { get; set; }
+        public bool IsIncluded { get; set; }
+    }
+
+    /// <summary>
+    /// Represents a foreign key definition.
+    /// </summary>
+    public class ForeignKeyDefinition
+    {
+        public string ConstraintName { get; set; }
+        public string ColumnName { get; set; }
+        public string ReferencedTable { get; set; }
+        public string ReferencedColumn { get; set; }
+        public string OnDelete { get; set; }
+        public string OnUpdate { get; set; }
+    }
+}
+```
+
+## E.4 Attribute-Based Entity Mapping
 
 ### Mapping Attributes
 
@@ -1040,7 +1834,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
         public string GenerateCreateTableSql(bool includeIfNotExists = true)
         {
             var sql = new StringBuilder();
-            
+
             if (includeIfNotExists)
             {
                 sql.AppendLine($"CREATE TABLE IF NOT EXISTS {this.GetFullTableName()} (");
@@ -1088,10 +1882,10 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
             {
                 var sql = new StringBuilder();
                 sql.Append("CREATE ");
-                
+
                 if (index.IsUnique)
                     sql.Append("UNIQUE ");
-                    
+
                 sql.Append($"INDEX IF NOT EXISTS {index.Name} ");
                 sql.Append($"ON {this.GetFullTableName()} (");
                 sql.Append(string.Join(", ", index.Columns.OrderBy(c => c.Order).Select(c => c.ColumnName)));
@@ -1134,7 +1928,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
                         this.primaryKeyProperty = property;
                     }
                 }
-                else if (this.primaryKeyProperty == null && !this.hasCompositeKey && 
+                else if (this.primaryKeyProperty == null && !this.hasCompositeKey &&
                          (property.Name == "Id" || property.Name == "Key"))
                 {
                     // Convention-based primary key
@@ -1147,7 +1941,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
                 foreach (var indexAttr in indexAttrs)
                 {
                     var indexName = indexAttr.Name ?? $"IX_{this.tableName}_{mapping.ColumnName}";
-                    
+
                     if (!indexGroups.ContainsKey(indexName))
                     {
                         indexGroups[indexName] = new List<IndexColumn>();
@@ -1209,10 +2003,10 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
 
             // Get column attribute
             var columnAttr = property.GetCustomAttribute<ColumnAttribute>();
-            
+
             // Column name
             mapping.ColumnName = columnAttr?.Name ?? property.Name;
-            
+
             // Data type
             if (columnAttr?.SqlType != null)
             {
@@ -1229,11 +2023,11 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
 
             // Nullability
             mapping.IsNullable = columnAttr?.IsNullable ?? this.IsNullableType(property.PropertyType);
-            
+
             // Default value
             mapping.DefaultValue = columnAttr?.DefaultValue;
             mapping.DefaultConstraintName = columnAttr?.DefaultConstraintName;
-            
+
             // Check constraint
             var checkAttr = property.GetCustomAttribute<CheckAttribute>();
             if (checkAttr != null)
@@ -1579,7 +2373,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
 }
 ```
 
-## E.3 CacheEntryMapper Implementation
+## E.5 CacheEntryMapper Implementation (Fixed)
 
 ### CacheEntryMapper for Generic CacheEntry<T>
 
@@ -1587,30 +2381,33 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
 using System;
 using System.Collections.Generic;
 using System.Data;
-using System.Reflection;
+using System.Data.SQLite;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AzureStack.Services.Update.Common.Persistence.Cache;
 using Microsoft.AzureStack.Services.Update.Common.Persistence.Serialization;
 
-namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
+namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
 {
     /// <summary>
-    /// Specialized mapper for CacheEntry<T> entities that handles generic value serialization.
+    /// Specialized mapper for CacheEntry&lt;T&gt; entities that handles generic value serialization.
     /// </summary>
     /// <typeparam name="T">The type of value stored in the cache entry</typeparam>
-    public class CacheEntryMapper<T> : BaseEntityMapper<CacheEntry<T>> where T : class
+    public class CacheEntryMapper<T> : BaseEntityMapper<CacheEntry<T>, string> where T : class
     {
         private readonly ISerializer<T> valueSerializer;
         private readonly string tableName;
 
         public CacheEntryMapper(ISerializer<T> valueSerializer = null, string tableName = "CacheEntry")
+            : base()
         {
-            this.valueSerializer = valueSerializer ?? SerializerResolver.GetSerializer<T>();
+            this.valueSerializer = valueSerializer ?? SerializerResolver.CreateSerializer<T>();
             this.tableName = tableName;
         }
 
         /// <summary>
-        /// Override to use custom table name (since CacheEntry<T> is generic).
+        /// Override to use custom table name (since CacheEntry&lt;T&gt; is generic).
         /// </summary>
         public override string GetTableName() => this.tableName;
 
@@ -1625,7 +2422,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
         public override string GenerateCreateTableSql(bool includeIfNotExists = true)
         {
             var sql = new StringBuilder();
-            
+
             if (includeIfNotExists)
             {
                 sql.AppendLine($"CREATE TABLE IF NOT EXISTS {this.tableName} (");
@@ -1635,22 +2432,20 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
                 sql.AppendLine($"CREATE TABLE {this.tableName} (");
             }
 
-            // Define columns explicitly for CacheEntry
-            sql.AppendLine("    CacheKey TEXT PRIMARY KEY NOT NULL,");
-            sql.AppendLine("    TypeName TEXT NOT NULL,");
-            sql.AppendLine("    Value BLOB NOT NULL,");
-            sql.AppendLine("    Size INTEGER,");
-            sql.AppendLine("    TTLSeconds INTEGER,");
-            sql.AppendLine("    ExpirationTime INTEGER,");
-            sql.AppendLine("    Tags TEXT,");
-            sql.AppendLine("    Metadata TEXT,");
-            sql.AppendLine("    Priority INTEGER DEFAULT 0,");
-            sql.AppendLine("    AccessCount INTEGER DEFAULT 0,");
-            sql.AppendLine("    LastAccessTime INTEGER,");
-            sql.AppendLine("    CreatedTime INTEGER NOT NULL,");
-            sql.AppendLine("    LastWriteTime INTEGER NOT NULL,");
+            // Define columns explicitly for CacheEntry based on Appendix A schema
+            sql.AppendLine("    CacheKey TEXT NOT NULL,");
             sql.AppendLine("    Version INTEGER NOT NULL,");
-            sql.AppendLine("    IsDeleted INTEGER NOT NULL DEFAULT 0");
+            sql.AppendLine("    TypeName TEXT NOT NULL,");
+            sql.AppendLine("    AssemblyVersion TEXT NOT NULL,");
+            sql.AppendLine("    Data BLOB NOT NULL,");
+            sql.AppendLine("    AbsoluteExpiration INTEGER NULL,");
+            sql.AppendLine("    Size INTEGER NOT NULL,");
+            sql.AppendLine("    IsDeleted INTEGER NOT NULL DEFAULT 0 CHECK (IsDeleted IN (0, 1)),");
+            sql.AppendLine("    CreatedTime TEXT NOT NULL DEFAULT (datetime('now')),");
+            sql.AppendLine("    LastWriteTime TEXT NOT NULL DEFAULT (datetime('now')),");
+            sql.AppendLine("    PRIMARY KEY (CacheKey, Version),");
+            sql.AppendLine("    FOREIGN KEY (Version) REFERENCES Version(Version),");
+            sql.AppendLine("    FOREIGN KEY (TypeName, AssemblyVersion) REFERENCES CacheEntity(TypeName, AssemblyVersion)");
             sql.AppendLine(");");
 
             return sql.ToString();
@@ -1664,91 +2459,79 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
             var indexes = new List<string>
             {
                 $"CREATE INDEX IF NOT EXISTS IX_{this.tableName}_TypeName ON {this.tableName} (TypeName);",
-                $"CREATE INDEX IF NOT EXISTS IX_{this.tableName}_ExpirationTime ON {this.tableName} (ExpirationTime);",
-                $"CREATE INDEX IF NOT EXISTS IX_{this.tableName}_Priority_LastAccess ON {this.tableName} (Priority DESC, LastAccessTime DESC);",
-                $"CREATE INDEX IF NOT EXISTS IX_{this.tableName}_Version ON {this.tableName} (Version DESC);",
-                $"CREATE INDEX IF NOT EXISTS IX_{this.tableName}_IsDeleted ON {this.tableName} (IsDeleted);"
+                $"CREATE INDEX IF NOT EXISTS IX_{this.tableName}_CacheKey ON {this.tableName} (CacheKey);",
+                $"CREATE INDEX IF NOT EXISTS IX_{this.tableName}_TypeName_AssemblyVersion ON {this.tableName} (TypeName, AssemblyVersion);"
             };
-
-            // Add indexes for tags if supported
-            indexes.Add($"CREATE INDEX IF NOT EXISTS IX_{this.tableName}_Tags ON {this.tableName} (Tags);");
 
             return indexes;
         }
 
         /// <summary>
-        /// Override to handle CacheEntry<T> specific column mappings.
+        /// Override to handle CacheEntry&lt;T&gt; specific column mappings.
         /// </summary>
         public override List<string> GetSelectColumns()
         {
             return new List<string>
             {
                 "CacheKey",
-                "TypeName",
-                "Value",
-                "Size",
-                "TTLSeconds",
-                "ExpirationTime",
-                "Tags",
-                "Metadata",
-                "Priority",
-                "AccessCount",
-                "LastAccessTime",
-                "CreatedTime",
-                "LastWriteTime",
                 "Version",
-                "IsDeleted"
+                "TypeName",
+                "AssemblyVersion",
+                "Data",
+                "AbsoluteExpiration",
+                "Size",
+                "IsDeleted",
+                "CreatedTime",
+                "LastWriteTime"
             };
         }
 
         /// <summary>
-        /// Override to handle CacheEntry<T> specific insert columns.
+        /// Override to handle CacheEntry&lt;T&gt; specific insert columns.
         /// </summary>
         public override List<string> GetInsertColumns()
         {
             return new List<string>
             {
                 "CacheKey",
-                "TypeName",
-                "Value",
-                "Size",
-                "TTLSeconds",
-                "ExpirationTime",
-                "Tags",
-                "Metadata",
-                "Priority",
-                "AccessCount",
-                "LastAccessTime",
-                "CreatedTime",
-                "LastWriteTime",
                 "Version",
-                "IsDeleted"
+                "TypeName",
+                "AssemblyVersion",
+                "Data",
+                "AbsoluteExpiration",
+                "Size",
+                "IsDeleted",
+                "CreatedTime",
+                "LastWriteTime"
             };
         }
 
         /// <summary>
-        /// Override to handle CacheEntry<T> specific update columns.
+        /// Override to handle CacheEntry&lt;T&gt; specific update columns.
         /// </summary>
         public override List<string> GetUpdateColumns()
         {
             return new List<string>
             {
                 "TypeName",
-                "Value",
+                "AssemblyVersion",
+                "Data",
+                "AbsoluteExpiration",
                 "Size",
-                "TTLSeconds",
-                "ExpirationTime",
-                "Tags",
-                "Metadata",
-                "Priority",
-                "AccessCount",
-                "LastAccessTime",
                 "LastWriteTime",
                 "Version"
-                // Note: CacheKey is primary key (not updated)
+                // Note: CacheKey is part of primary key (not updated)
                 // Note: CreatedTime is not updated
                 // Note: IsDeleted is handled separately
             };
+        }
+
+        /// <summary>
+        /// Override to get primary key column name.
+        /// </summary>
+        public override string GetPrimaryKeyColumn()
+        {
+            return "CacheKey";
         }
 
         /// <summary>
@@ -1756,24 +2539,19 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
         /// </summary>
         public override void AddParameters(SQLiteCommand command, CacheEntry<T> entity)
         {
-            // Serialize the generic value
-            byte[] serializedValue = this.SerializeValue(entity.Value);
+            // Serialize the entire CacheEntry<T> object to bytes
+            var serializedData = this.SerializeCacheEntry(entity);
             
             command.Parameters.AddWithValue("@CacheKey", entity.Id ?? (object)DBNull.Value);
-            command.Parameters.AddWithValue("@TypeName", entity.TypeName ?? typeof(T).FullName);
-            command.Parameters.AddWithValue("@Value", serializedValue);
-            command.Parameters.AddWithValue("@Size", serializedValue?.Length ?? 0);
-            command.Parameters.AddWithValue("@TTLSeconds", entity.TTLSeconds ?? (object)DBNull.Value);
-            command.Parameters.AddWithValue("@ExpirationTime", entity.ExpirationTime?.ToUnixTimeSeconds() ?? (object)DBNull.Value);
-            command.Parameters.AddWithValue("@Tags", this.SerializeTags(entity.Tags));
-            command.Parameters.AddWithValue("@Metadata", this.SerializeMetadata(entity.Metadata));
-            command.Parameters.AddWithValue("@Priority", entity.Priority);
-            command.Parameters.AddWithValue("@AccessCount", entity.AccessCount);
-            command.Parameters.AddWithValue("@LastAccessTime", entity.LastAccessTime?.ToUnixTimeSeconds() ?? (object)DBNull.Value);
-            command.Parameters.AddWithValue("@CreatedTime", entity.CreatedTime.ToUnixTimeSeconds());
-            command.Parameters.AddWithValue("@LastWriteTime", entity.LastWriteTime.ToUnixTimeSeconds());
             command.Parameters.AddWithValue("@Version", entity.Version);
+            command.Parameters.AddWithValue("@TypeName", entity.TypeName ?? typeof(T).Name);
+            command.Parameters.AddWithValue("@AssemblyVersion", entity.AssemblyQualifiedName?.Split(',')[1]?.Trim().Replace("Version=", "") ?? "1.0.0.0");
+            command.Parameters.AddWithValue("@Data", serializedData);
+            command.Parameters.AddWithValue("@AbsoluteExpiration", entity.AbsoluteExpiration?.ToUnixTimeSeconds() ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("@Size", entity.Size);
             command.Parameters.AddWithValue("@IsDeleted", entity.IsDeleted ? 1 : 0);
+            command.Parameters.AddWithValue("@CreatedTime", entity.CreatedTime.ToString("yyyy-MM-dd HH:mm:ss"));
+            command.Parameters.AddWithValue("@LastWriteTime", entity.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss"));
         }
 
         /// <summary>
@@ -1784,29 +2562,68 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
             var entity = new CacheEntry<T>();
             
             entity.Id = reader["CacheKey"] as string;
+            entity.Version = Convert.ToInt64(reader["Version"]);
             entity.TypeName = reader["TypeName"] as string;
             
-            // Deserialize the value
-            var valueBytes = reader["Value"] as byte[];
-            if (valueBytes != null)
+            // Build AssemblyQualifiedName
+            var assemblyVersion = reader["AssemblyVersion"] as string;
+            entity.AssemblyQualifiedName = $"{entity.TypeName}, Version={assemblyVersion}";
+            
+            // Deserialize the entire CacheEntry from Data blob
+            var dataBytes = reader["Data"] as byte[];
+            if (dataBytes != null)
             {
-                entity.Value = this.DeserializeValue(valueBytes);
+                var deserializedEntry = this.DeserializeCacheEntry(dataBytes);
+                entity.Value = deserializedEntry.Value;
+                entity.Tags = deserializedEntry.Tags;
+                entity.SlidingExpiration = deserializedEntry.SlidingExpiration;
             }
             
             entity.Size = Convert.ToInt64(reader["Size"]);
-            entity.TTLSeconds = reader["TTLSeconds"] == DBNull.Value ? null : Convert.ToInt32(reader["TTLSeconds"]);
-            entity.ExpirationTime = reader["ExpirationTime"] == DBNull.Value ? null : DateTimeOffset.FromUnixTimeSeconds(Convert.ToInt64(reader["ExpirationTime"]));
-            entity.Tags = this.DeserializeTags(reader["Tags"] as string);
-            entity.Metadata = this.DeserializeMetadata(reader["Metadata"] as string);
-            entity.Priority = Convert.ToInt32(reader["Priority"]);
-            entity.AccessCount = Convert.ToInt64(reader["AccessCount"]);
-            entity.LastAccessTime = reader["LastAccessTime"] == DBNull.Value ? null : DateTimeOffset.FromUnixTimeSeconds(Convert.ToInt64(reader["LastAccessTime"]));
-            entity.CreatedTime = DateTimeOffset.FromUnixTimeSeconds(Convert.ToInt64(reader["CreatedTime"]));
-            entity.LastWriteTime = DateTimeOffset.FromUnixTimeSeconds(Convert.ToInt64(reader["LastWriteTime"]));
-            entity.Version = Convert.ToInt64(reader["Version"]);
+            entity.AbsoluteExpiration = reader["AbsoluteExpiration"] == DBNull.Value 
+                ? null 
+                : DateTimeOffset.FromUnixTimeSeconds(Convert.ToInt64(reader["AbsoluteExpiration"]));
             entity.IsDeleted = Convert.ToInt32(reader["IsDeleted"]) == 1;
+            entity.CreatedTime = DateTimeOffset.Parse(reader["CreatedTime"].ToString());
+            entity.LastWriteTime = DateTimeOffset.Parse(reader["LastWriteTime"].ToString());
+            
+            // Calculate ExpirationTime based on AbsoluteExpiration
+            entity.ExpirationTime = entity.AbsoluteExpiration;
             
             return entity;
+        }
+
+        /// <summary>
+        /// Serializes the entire CacheEntry&lt;T&gt; object to bytes.
+        /// </summary>
+        protected virtual byte[] SerializeCacheEntry(CacheEntry<T> entry)
+        {
+            if (entry == null)
+                return null;
+            
+            // Use JSON serialization for the entire CacheEntry object
+            var json = JsonSerializer.Serialize(entry, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                WriteIndented = false
+            });
+            
+            return Encoding.UTF8.GetBytes(json);
+        }
+
+        /// <summary>
+        /// Deserializes the CacheEntry&lt;T&gt; from bytes.
+        /// </summary>
+        protected virtual CacheEntry<T> DeserializeCacheEntry(byte[] bytes)
+        {
+            if (bytes == null || bytes.Length == 0)
+                return new CacheEntry<T>();
+            
+            var json = Encoding.UTF8.GetString(bytes);
+            return JsonSerializer.Deserialize<CacheEntry<T>>(json, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            });
         }
 
         /// <summary>
@@ -1816,13 +2633,13 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
         {
             if (value == null)
                 return null;
-                
+
             if (this.valueSerializer != null)
             {
                 var serialized = this.valueSerializer.Serialize(value);
                 return Encoding.UTF8.GetBytes(serialized);
             }
-            
+
             // Fallback to JSON serialization
             var json = JsonSerializer.Serialize(value);
             return Encoding.UTF8.GetBytes(json);
@@ -1835,13 +2652,13 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
         {
             if (bytes == null || bytes.Length == 0)
                 return null;
-                
+
             if (this.valueSerializer != null)
             {
                 var serialized = Encoding.UTF8.GetString(bytes);
                 return this.valueSerializer.Deserialize(serialized);
             }
-            
+
             // Fallback to JSON deserialization
             var json = Encoding.UTF8.GetString(bytes);
             return JsonSerializer.Deserialize<T>(json);
@@ -1854,7 +2671,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
         {
             if (tags == null || tags.Count == 0)
                 return null;
-                
+
             return string.Join(";", tags);
         }
 
@@ -1865,7 +2682,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
         {
             if (string.IsNullOrEmpty(tags))
                 return new HashSet<string>();
-                
+
             return new HashSet<string>(tags.Split(';', StringSplitOptions.RemoveEmptyEntries));
         }
 
@@ -1876,7 +2693,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
         {
             if (metadata == null || metadata.Count == 0)
                 return null;
-                
+
             return JsonSerializer.Serialize(metadata);
         }
 
@@ -1887,7 +2704,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Mapping
         {
             if (string.IsNullOrEmpty(metadata))
                 return new Dictionary<string, string>();
-                
+
             return JsonSerializer.Deserialize<Dictionary<string, string>>(metadata);
         }
     }
@@ -1935,7 +2752,7 @@ await using (var conn = new SQLiteConnection(connectionString))
     var createTableSql = updateEntityMapper.GenerateCreateTableSql();
     using var cmd = new SQLiteCommand(createTableSql, conn);
     await cmd.ExecuteNonQueryAsync();
-    
+
     // Create indexes
     foreach (var indexSql in updateEntityMapper.GenerateCreateIndexSql())
     {
@@ -1980,7 +2797,583 @@ Type runtimeType = typeof(MyDynamicType);
 var typedMapper = CacheEntryMapper.CreateTypedMapper(runtimeType);
 ```
 
-## E.4 Serialization Implementation
+## E.6 SQLiteCacheProvider Implementation
+
+### ICacheProvider Interface
+
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Microsoft.AzureStack.Services.Update.Common.Cache
+{
+    /// <summary>
+    /// Defines the contract for cache providers that store values of type &lt;typeparamref name="T"/&gt;.
+    /// </summary>
+    /// <typeparam name="T">The type of value to cache</typeparam>
+    public interface ICacheProvider<T> where T : class
+    {
+        /// <summary>
+        /// Gets a cached value by key.
+        /// </summary>
+        /// <param name="key">The cache key</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>The cached value, or null if not found or expired</returns>
+        Task<T> GetAsync(string key, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Sets a value in the cache with the specified key.
+        /// </summary>
+        /// <param name="key">The cache key</param>
+        /// <param name="value">The value to cache</param>
+        /// <param name="expiration">Optional expiration time</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        Task SetAsync(string key, T value, TimeSpan? expiration = null, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Sets a value in the cache with sliding expiration.
+        /// </summary>
+        /// <param name="key">The cache key</param>
+        /// <param name="value">The value to cache</param>
+        /// <param name="slidingExpiration">The sliding expiration time</param>
+        /// <param name="absoluteExpiration">Optional absolute expiration time</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        Task SetWithSlidingExpirationAsync(
+            string key,
+            T value,
+            TimeSpan slidingExpiration,
+            TimeSpan? absoluteExpiration = null,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Removes a value from the cache.
+        /// </summary>
+        /// <param name="key">The cache key</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>True if the item was removed, false if not found</returns>
+        Task<bool> RemoveAsync(string key, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Checks if a key exists in the cache.
+        /// </summary>
+        /// <param name="key">The cache key</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>True if the key exists and is not expired, false otherwise</returns>
+        Task<bool> ExistsAsync(string key, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Gets all cache entries with a specific tag.
+        /// </summary>
+        /// <param name="tag">The tag to search for</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>A list of cache entries with the specified tag</returns>
+        Task<IList<CacheEntry<T>>> GetByTagAsync(string tag, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Clears all expired entries from the cache.
+        /// </summary>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>The number of entries cleared</returns>
+        Task<int> ClearExpiredAsync(CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Initializes the cache storage.
+        /// </summary>
+        /// <param name="cancellationToken">Cancellation token</param>
+        Task InitializeAsync(CancellationToken cancellationToken = default);
+    }
+}
+```
+
+### SQLiteCacheProvider for Cache Operations
+
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Data.SQLite;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.AzureStack.Services.Update.Common.Cache;
+using Microsoft.AzureStack.Services.Update.Common.Persistence;
+using Microsoft.AzureStack.Services.Update.Common.Persistence.Cache;
+using Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite;
+
+namespace Microsoft.AzureStack.Services.Update.Common.Cache.SQLite
+{
+    /// <summary>
+    /// SQLite implementation of a cache provider that stores CacheEntry&lt;T&gt; objects.
+    /// </summary>
+    /// <typeparam name="T">The type of value to cache</typeparam>
+    public class SQLiteCacheProvider<T> : ICacheProvider<T> where T : class
+    {
+        private readonly SQLitePersistenceProvider<CacheEntry<T>, string> persistenceProvider;
+        private readonly string connectionString;
+        private readonly string tableName;
+        private readonly CacheEntryMapper<T> mapper;
+        private readonly TimeSpan defaultExpiration;
+
+        public SQLiteCacheProvider(
+            string connectionString,
+            string tableName = "CacheEntry",
+            TimeSpan? defaultExpiration = null)
+        {
+            this.connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+            this.tableName = tableName;
+            this.defaultExpiration = defaultExpiration ?? TimeSpan.FromHours(1);
+            
+            // Create mapper and persistence provider
+            this.mapper = new CacheEntryMapper<T>(null, tableName);
+            this.persistenceProvider = new SQLitePersistenceProvider<CacheEntry<T>, string>(
+                connectionString,
+                this.mapper);
+        }
+
+        /// <summary>
+        /// Gets a cached value by key.
+        /// </summary>
+        public async Task<T> GetAsync(string key, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(key))
+                throw new ArgumentNullException(nameof(key));
+
+            var callerInfo = new CallerInfo
+            {
+                CallerMemberName = nameof(GetAsync),
+                CallerFilePath = "SQLiteCacheProvider.cs",
+                CallerLineNumber = 0
+            };
+
+            var entry = await this.persistenceProvider.GetAsync(key, callerInfo, cancellationToken);
+            
+            if (entry == null || entry.IsDeleted)
+                return null;
+
+            // Check expiration
+            if (entry.ExpirationTime.HasValue && entry.ExpirationTime.Value < DateTimeOffset.UtcNow)
+            {
+                // Entry has expired, soft delete it
+                await this.persistenceProvider.DeleteAsync(key, callerInfo, false, cancellationToken);
+                return null;
+            }
+
+            // Update access count and last access time
+            entry.AccessCount++;
+            entry.LastAccessTime = DateTimeOffset.UtcNow;
+            
+            // Handle sliding expiration
+            if (entry.SlidingExpiration.HasValue)
+            {
+                entry.ExpirationTime = DateTimeOffset.UtcNow.Add(entry.SlidingExpiration.Value);
+                entry.AbsoluteExpiration = entry.ExpirationTime;
+            }
+
+            await this.persistenceProvider.UpdateAsync(entry, callerInfo, cancellationToken);
+
+            return entry.Value;
+        }
+
+        /// <summary>
+        /// Sets a value in the cache with the specified key.
+        /// </summary>
+        public async Task SetAsync(
+            string key, 
+            T value, 
+            TimeSpan? expiration = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(key))
+                throw new ArgumentNullException(nameof(key));
+            if (value == null)
+                throw new ArgumentNullException(nameof(value));
+
+            var effectiveExpiration = expiration ?? this.defaultExpiration;
+            var expirationTime = DateTimeOffset.UtcNow.Add(effectiveExpiration);
+
+            var callerInfo = new CallerInfo
+            {
+                CallerMemberName = nameof(SetAsync),
+                CallerFilePath = "SQLiteCacheProvider.cs",
+                CallerLineNumber = 0
+            };
+
+            // Check if entry already exists
+            var existingEntry = await this.persistenceProvider.GetAsync(key, callerInfo, cancellationToken);
+            
+            if (existingEntry != null && !existingEntry.IsDeleted)
+            {
+                // Update existing entry
+                existingEntry.Value = value;
+                existingEntry.TypeName = typeof(T).Name;
+                existingEntry.AssemblyQualifiedName = typeof(T).AssemblyQualifiedName;
+                existingEntry.Size = EstimateSize(value);
+                existingEntry.ExpirationTime = expirationTime;
+                existingEntry.AbsoluteExpiration = expirationTime;
+                existingEntry.LastWriteTime = DateTimeOffset.UtcNow;
+                
+                await this.persistenceProvider.UpdateAsync(existingEntry, callerInfo, cancellationToken);
+            }
+            else
+            {
+                // Create new entry
+                var entry = new CacheEntry<T>
+                {
+                    Id = key,
+                    Value = value,
+                    TypeName = typeof(T).Name,
+                    AssemblyQualifiedName = typeof(T).AssemblyQualifiedName,
+                    Size = EstimateSize(value),
+                    ExpirationTime = expirationTime,
+                    AbsoluteExpiration = expirationTime,
+                    Tags = new HashSet<string>(),
+                    Priority = 0,
+                    AccessCount = 0,
+                    CreatedTime = DateTimeOffset.UtcNow,
+                    LastWriteTime = DateTimeOffset.UtcNow,
+                    Version = 1,
+                    IsDeleted = false
+                };
+
+                await this.persistenceProvider.CreateAsync(entry, callerInfo, cancellationToken);
+            }
+        }
+
+        /// <summary>
+        /// Sets a value in the cache with sliding expiration.
+        /// </summary>
+        public async Task SetWithSlidingExpirationAsync(
+            string key,
+            T value,
+            TimeSpan slidingExpiration,
+            TimeSpan? absoluteExpiration = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(key))
+                throw new ArgumentNullException(nameof(key));
+            if (value == null)
+                throw new ArgumentNullException(nameof(value));
+
+            var callerInfo = new CallerInfo
+            {
+                CallerMemberName = nameof(SetWithSlidingExpirationAsync),
+                CallerFilePath = "SQLiteCacheProvider.cs",
+                CallerLineNumber = 0
+            };
+
+            var now = DateTimeOffset.UtcNow;
+            var expirationTime = now.Add(slidingExpiration);
+            var absoluteExpirationTime = absoluteExpiration.HasValue 
+                ? now.Add(absoluteExpiration.Value) 
+                : (DateTimeOffset?)null;
+
+            // Check if entry already exists
+            var existingEntry = await this.persistenceProvider.GetAsync(key, callerInfo, cancellationToken);
+            
+            if (existingEntry != null && !existingEntry.IsDeleted)
+            {
+                // Update existing entry
+                existingEntry.Value = value;
+                existingEntry.TypeName = typeof(T).Name;
+                existingEntry.AssemblyQualifiedName = typeof(T).AssemblyQualifiedName;
+                existingEntry.Size = EstimateSize(value);
+                existingEntry.SlidingExpiration = slidingExpiration;
+                existingEntry.ExpirationTime = expirationTime;
+                existingEntry.AbsoluteExpiration = absoluteExpirationTime ?? expirationTime;
+                existingEntry.LastWriteTime = now;
+                
+                await this.persistenceProvider.UpdateAsync(existingEntry, callerInfo, cancellationToken);
+            }
+            else
+            {
+                // Create new entry with sliding expiration
+                var entry = new CacheEntry<T>
+                {
+                    Id = key,
+                    Value = value,
+                    TypeName = typeof(T).Name,
+                    AssemblyQualifiedName = typeof(T).AssemblyQualifiedName,
+                    Size = EstimateSize(value),
+                    SlidingExpiration = slidingExpiration,
+                    ExpirationTime = expirationTime,
+                    AbsoluteExpiration = absoluteExpirationTime ?? expirationTime,
+                    Tags = new HashSet<string>(),
+                    Priority = 0,
+                    AccessCount = 0,
+                    CreatedTime = now,
+                    LastWriteTime = now,
+                    Version = 1,
+                    IsDeleted = false
+                };
+
+                await this.persistenceProvider.CreateAsync(entry, callerInfo, cancellationToken);
+            }
+        }
+
+        /// <summary>
+        /// Removes a value from the cache.
+        /// </summary>
+        public async Task<bool> RemoveAsync(string key, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(key))
+                throw new ArgumentNullException(nameof(key));
+
+            var callerInfo = new CallerInfo
+            {
+                CallerMemberName = nameof(RemoveAsync),
+                CallerFilePath = "SQLiteCacheProvider.cs",
+                CallerLineNumber = 0
+            };
+
+            // Soft delete the entry
+            return await this.persistenceProvider.DeleteAsync(key, callerInfo, false, cancellationToken);
+        }
+
+        /// <summary>
+        /// Checks if a key exists in the cache.
+        /// </summary>
+        public async Task<bool> ExistsAsync(string key, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(key))
+                return false;
+
+            var callerInfo = new CallerInfo
+            {
+                CallerMemberName = nameof(ExistsAsync),
+                CallerFilePath = "SQLiteCacheProvider.cs",
+                CallerLineNumber = 0
+            };
+
+            var entry = await this.persistenceProvider.GetAsync(key, callerInfo, cancellationToken);
+            
+            if (entry == null || entry.IsDeleted)
+                return false;
+
+            // Check expiration
+            if (entry.ExpirationTime.HasValue && entry.ExpirationTime.Value < DateTimeOffset.UtcNow)
+            {
+                // Entry has expired
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Gets all cache entries with a specific tag.
+        /// </summary>
+        public async Task<IList<CacheEntry<T>>> GetByTagAsync(
+            string tag,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(tag))
+                throw new ArgumentNullException(nameof(tag));
+
+            // Use raw SQL query to find entries with the tag
+            var sql = $@"
+                SELECT {string.Join(", ", this.mapper.GetSelectColumns())}
+                FROM {this.tableName}
+                WHERE Tags LIKE @tag
+                  AND IsDeleted = 0
+                  AND (AbsoluteExpiration IS NULL OR AbsoluteExpiration > @now)
+                ORDER BY LastAccessTime DESC";
+
+            var results = new List<CacheEntry<T>>();
+
+            using var connection = new SQLiteConnection(this.connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            using var command = new SQLiteCommand(sql, connection);
+            command.Parameters.AddWithValue("@tag", $"%{tag}%");
+            command.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+            using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var entry = this.mapper.MapFromReader(reader);
+                if (entry.Tags.Contains(tag))
+                {
+                    results.Add(entry);
+                }
+            }
+
+            return results;
+        }
+
+        /// <summary>
+        /// Clears all expired entries from the cache.
+        /// </summary>
+        public async Task<int> ClearExpiredAsync(CancellationToken cancellationToken = default)
+        {
+            var sql = $@"
+                UPDATE {this.tableName}
+                SET IsDeleted = 1,
+                    LastWriteTime = @now
+                WHERE IsDeleted = 0
+                  AND AbsoluteExpiration IS NOT NULL
+                  AND AbsoluteExpiration < @now;
+                
+                SELECT changes();";
+
+            using var connection = new SQLiteConnection(this.connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            using var command = new SQLiteCommand(sql, connection);
+            command.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+            var rowsAffected = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
+            return rowsAffected;
+        }
+
+        /// <summary>
+        /// Initializes the cache database schema.
+        /// </summary>
+        public async Task InitializeAsync(CancellationToken cancellationToken = default)
+        {
+            using var connection = new SQLiteConnection(this.connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            // Create Version table first (referenced by CacheEntry)
+            var createVersionTableSql = @"
+                CREATE TABLE IF NOT EXISTS Version (
+                    Version INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+                );";
+
+            using (var cmd = new SQLiteCommand(createVersionTableSql, connection))
+            {
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // Create CacheEntity table (referenced by CacheEntry)
+            var createCacheEntityTableSql = @"
+                CREATE TABLE IF NOT EXISTS CacheEntity (
+                    TypeName TEXT NOT NULL,
+                    AssemblyVersion TEXT NOT NULL,
+                    SerializationType TEXT NOT NULL DEFAULT 'JSON',
+                    Description TEXT,
+                    CreatedTime TEXT NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY (TypeName, AssemblyVersion)
+                );";
+
+            using (var cmd = new SQLiteCommand(createCacheEntityTableSql, connection))
+            {
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // Create CacheEntry table
+            var createTableSql = this.mapper.GenerateCreateTableSql();
+            using (var cmd = new SQLiteCommand(createTableSql, connection))
+            {
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // Create indexes
+            foreach (var indexSql in this.mapper.GenerateCreateIndexSql())
+            {
+                using var indexCmd = new SQLiteCommand(indexSql, connection);
+                await indexCmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
+        /// <summary>
+        /// Estimates the size of a value in bytes.
+        /// </summary>
+        private long EstimateSize(T value)
+        {
+            if (value == null)
+                return 0;
+
+            try
+            {
+                // Use the mapper's serialization to estimate size
+                var tempEntry = new CacheEntry<T> { Value = value };
+                var serialized = this.mapper.SerializeCacheEntry(tempEntry);
+                return serialized?.Length ?? 0;
+            }
+            catch
+            {
+                // Fallback to a rough estimate
+                return 1024; // 1KB default
+            }
+        }
+    }
+}
+```
+
+### Usage Examples
+
+```csharp
+// Example 1: Initialize and use SQLiteCacheProvider&lt;UpdateEntity&gt;
+var cacheProvider = new SQLiteCacheProvider<UpdateEntity>(
+    "Data Source=cache.db;Version=3;",
+    "CacheEntry",
+    TimeSpan.FromHours(4));
+
+// Initialize the database schema
+await cacheProvider.InitializeAsync();
+
+// Cache an update entity
+var updateEntity = new UpdateEntity 
+{ 
+    Id = "update-123",
+    UpdateName = "Critical Security Update",
+    Type = "Security",
+    State = UpdateState.Available 
+};
+
+await cacheProvider.SetAsync("update-123", updateEntity, TimeSpan.FromHours(2));
+
+// Retrieve from cache
+var cachedUpdate = await cacheProvider.GetAsync("update-123");
+if (cachedUpdate != null)
+{
+    Console.WriteLine($"Found update: {cachedUpdate.UpdateName}");
+}
+
+// Example 2: Using sliding expiration
+await cacheProvider.SetWithSlidingExpirationAsync(
+    "config-settings",
+    new ConfigSettings { Theme = "dark", Language = "en-US" },
+    slidingExpiration: TimeSpan.FromMinutes(30),
+    absoluteExpiration: TimeSpan.FromHours(24));
+
+// Example 3: Working with tags
+var taggedEntry = new CacheEntry<ProductInfo>
+{
+    Id = "product-456",
+    Value = new ProductInfo { Name = "Surface Pro", Category = "Hardware" },
+    Tags = new HashSet<string> { "hardware", "surface", "premium" }
+};
+
+// For tagged entries, you'd need to use the persistence provider directly
+// or extend SQLiteCacheProvider to support tags in the Set methods
+
+// Example 4: Cleanup expired entries
+int expiredCount = await cacheProvider.ClearExpiredAsync();
+Console.WriteLine($"Cleared {expiredCount} expired cache entries");
+
+// Example 5: Generic configuration cache
+var configCache = new SQLiteCacheProvider<Dictionary<string, object>>(
+    connectionString: "Data Source=config.db;Version=3;",
+    tableName: "ConfigCache",
+    defaultExpiration: TimeSpan.FromDays(1));
+
+await configCache.InitializeAsync();
+
+// Cache configuration data
+var appConfig = new Dictionary<string, object>
+{
+    ["ApiUrl"] = "https://api.example.com",
+    ["MaxRetries"] = 3,
+    ["EnableLogging"] = true
+};
+
+await configCache.SetAsync("app-config", appConfig);
+```
+
+## E.7 Serialization Implementation
 
 ### ISerializer Interface
 
@@ -2042,7 +3435,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Serialization
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
                 WriteIndented = false,
                 DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                Converters = 
+                Converters =
                 {
                     new JsonStringEnumConverter()
                 }
@@ -2107,7 +3500,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.Serialization
         public DataContractSerializer()
         {
             this.serializer = new DataContractSerializer(typeof(T));
-            
+
             this.writerSettings = new XmlWriterSettings
             {
                 Indent = false,
@@ -2273,18 +3666,18 @@ public class PersistenceExample
     {
         // SerializerResolver automatically picks the right serializer
         var serializer = SerializerResolver.GetSerializer<T>();
-        
+
         // For CacheEntry<T>, it will use DataContractSerializer
         // For UpdateEntity, it will use JsonSerializer with custom converter
         // For other types, it will use default JsonSerializer
-        
+
         string serialized = serializer.Serialize(entity);
         string serializerType = serializer.SerializerType;
-        
+
         // Store serialized data and serializer type
         SaveToDatabase(serialized, serializerType);
     }
-    
+
     public T LoadEntity<T>(string data, string serializerType) where T : class
     {
         // Create the appropriate serializer based on stored type
@@ -2294,34 +3687,8 @@ public class PersistenceExample
 }
 ```
 
-## E.5 Entity Mapper Interface and Implementation
+## E.7 Expression Translation to SQL
 
-### ISQLiteEntityMapper Interface
-
-```csharp
-namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
-{
-    /// <summary>
-    /// Defines the contract for mapping entities to SQLite tables.
-    /// </summary>
-    public interface ISQLiteEntityMapper<T, TKey>
-        where T : IEntity<TKey>
-        where TKey : IEquatable<TKey>
-    {
-        string GetTableName();
-        string GetPrimaryKeyColumn();
-        List<string> GetSelectColumns();
-        List<string> GetInsertColumns();
-        List<string> GetUpdateColumns();
-        void AddParameters(SQLiteCommand command, T entity);
-        T MapFromReader(IDataReader reader);
-        string SerializeKey(TKey key);
-        TKey DeserializeKey(string serialized);
-    }
-}
-```
-
-## E.4 Expression Translation to SQL
 
 ### SQLiteExpressionTranslator Implementation
 
@@ -2356,9 +3723,9 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
         protected override Expression VisitBinary(BinaryExpression node)
         {
             this.sql.Append("(");
-            
+
             this.Visit(node.Left);
-            
+
             switch (node.NodeType)
             {
                 case ExpressionType.Equal:
@@ -2388,9 +3755,9 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
                 default:
                     throw new NotSupportedException($"Binary operator {node.NodeType} is not supported");
             }
-            
+
             this.Visit(node.Right);
-            
+
             this.sql.Append(")");
             return node;
         }
@@ -2410,7 +3777,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
                 this.parameters[paramName] = value;
                 this.sql.Append(paramName);
             }
-            
+
             return node;
         }
 
@@ -2475,7 +3842,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
             {
                 throw new NotSupportedException($"Method {node.Method.Name} is not supported");
             }
-            
+
             return node;
         }
 
@@ -2510,7 +3877,7 @@ namespace Microsoft.AzureStack.Services.Update.Common.Persistence.SQLite
 }
 ```
 
-## E.5 BaseEntityMapper Usage and Tests
+## E.8 BaseEntityMapper Usage and Tests
 
 ### Usage Example
 
@@ -2564,12 +3931,12 @@ public class BaseEntityMapperTests
         // Assert
         var mappings = mapper.GetPropertyMappings();
         Assert.AreEqual(3, mappings.Count); // Id, Name, CreatedDate
-        
+
         var idMapping = mappings.Values.First(m => m.PropertyName == "Id");
         Assert.IsTrue(idMapping.IsPrimaryKey);
         Assert.AreEqual("Id", idMapping.ColumnName);
         Assert.AreEqual(SqlDbType.Int, idMapping.SqlType);
-        
+
         var nameMapping = mappings.Values.First(m => m.PropertyName == "Name");
         Assert.AreEqual("Name", nameMapping.ColumnName);
         Assert.AreEqual(SqlDbType.NVarChar, nameMapping.SqlType);
@@ -2640,12 +4007,12 @@ public class BaseEntityMapperTests
 }
 ```
 
-## E.6 Key Translation Patterns
+## E.9 Key Translation Patterns
 
 1. **CRUD Operation Signatures to SQL Mapping**:
    - `Get = Func<TKey, T>` → `SELECT ... WHERE PrimaryKey = @key ORDER BY Version DESC LIMIT 1` (then check IsDeleted and return null if true)
-   - `Create = Func<T, T>` → `INSERT INTO ... VALUES (...)` with version from global Version table
-   - `Update = Func<T, T>` → `UPDATE ... SET ... WHERE PrimaryKey = @key AND Version = @version` with new version from global Version table
+   - `Create = Func<T, T>` → `INSERT INTO ... VALUES (...)` with version from global Version table, if entity exists, its latest version should be deleted, otherwise throw EntityAlreadyExistsException
+   - `Update = Func<T, T>` → `INSERT INTO ... VALUES (...)` make sure existing entity exists and matches current version, then insert with new version from global Version table
    - `Delete = Func<TKey, bool>` → `UPDATE ... SET IsDeleted = 1` (soft delete, no version change) or `DELETE FROM ...` (hard delete)
 
 2. **Parameter Safety**:

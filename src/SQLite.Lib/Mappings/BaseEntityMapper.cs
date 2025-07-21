@@ -9,15 +9,18 @@ namespace SQLite.Lib.Mappings
     using System;
     using System.Collections.Generic;
     using System.Data;
+    using System.Data.SQLite;
     using System.Linq;
     using System.Reflection;
     using System.Text;
+    using SQLite.Lib.Contracts;
 
     /// <summary>
     /// Base mapper that uses reflection and attributes to create mappings between C# properties and database columns.
     /// </summary>
     /// <typeparam name="T">The entity type to map</typeparam>
-    public class BaseEntityMapper<T> where T : class, new()
+    /// <typeparam name="TKey">The key type.</typeparam>
+    public class BaseEntityMapper<T, TKey> : ISQLiteEntityMapper<T, TKey> where T : IEntity<TKey> where TKey : IEquatable<TKey>
     {
         private readonly Type entityType;
         private readonly string tableName;
@@ -25,8 +28,8 @@ namespace SQLite.Lib.Mappings
         private readonly Dictionary<PropertyInfo, PropertyMapping> propertyMappings;
         private readonly List<IndexDefinition> indexes;
         private readonly List<ForeignKeyDefinition> foreignKeys;
-        private readonly PropertyInfo primaryKeyProperty;
-        private readonly bool hasCompositeKey;
+        private PropertyInfo primaryKeyProperty;
+        private bool hasCompositeKey;
         private readonly List<PropertyInfo> compositeKeyProperties;
 
         public BaseEntityMapper()
@@ -62,6 +65,11 @@ namespace SQLite.Lib.Mappings
         /// Gets the table name without schema.
         /// </summary>
         public virtual string GetTableName() => this.tableName;
+
+        public string GetPrimaryKeyColumn()
+        {
+            return this.propertyMappings.FirstOrDefault(m => m.Value.IsPrimaryKey).Value?.ColumnName;
+        }
 
         /// <summary>
         /// Gets all property mappings.
@@ -567,5 +575,591 @@ namespace SQLite.Lib.Mappings
 
             return sql.ToString();
         }
+
+        /// <summary>
+        /// Gets the columns to select in SELECT queries.
+        /// </summary>
+        public virtual List<string> GetSelectColumns()
+        {
+            return this.propertyMappings.Values
+                .Where(m => !m.IsNotMapped)
+                .Select(m => m.ColumnName)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Gets the columns to include in INSERT statements.
+        /// </summary>
+        public virtual List<string> GetInsertColumns()
+        {
+            return this.propertyMappings.Values
+                .Where(m => !m.IsNotMapped && !m.IsComputed && !m.IsAutoIncrement)
+                .Select(m => m.ColumnName)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Gets the columns to include in UPDATE statements.
+        /// </summary>
+        public virtual List<string> GetUpdateColumns()
+        {
+            return this.propertyMappings.Values
+                .Where(m => !m.IsNotMapped && !m.IsComputed && !m.IsPrimaryKey)
+                .Select(m => m.ColumnName)
+                .ToList();
+        }
+
+        public void AddParameters(SQLiteCommand command, T entity)
+        {
+            foreach (var mapping in this.propertyMappings.Values.Where(m => !m.IsNotMapped && !m.IsComputed))
+            {
+                var value = mapping.PropertyInfo.GetValue(entity);
+                var parameter = command.CreateParameter();
+                parameter.ParameterName = $"@{mapping.ColumnName}";
+                parameter.Value = value ?? DBNull.Value;
+                command.Parameters.Add(parameter);
+            }
+        }
+
+        /// <summary>
+        /// Adds parameters to a command for the given entity.
+        /// </summary>
+        public virtual void AddParameters(System.Data.Common.DbCommand command, T entity)
+        {
+            foreach (var mapping in this.propertyMappings.Values.Where(m => !m.IsNotMapped && !m.IsComputed))
+            {
+                var value = mapping.PropertyInfo.GetValue(entity);
+                var parameter = command.CreateParameter();
+                parameter.ParameterName = $"@{mapping.ColumnName}";
+                parameter.Value = value ?? DBNull.Value;
+                command.Parameters.Add(parameter);
+            }
+        }
+
+        /// <summary>
+        /// Maps a data reader row to an entity instance.
+        /// Supports entities with parameterized constructors by collecting property values
+        /// and using reflection to find and invoke the appropriate constructor.
+        /// </summary>
+        public virtual T MapFromReader(IDataReader reader)
+        {
+            // Step 1: Collect all property values from the reader into a dictionary
+            var propertyValues = new Dictionary<string, object>();
+
+            foreach (var mapping in this.propertyMappings.Values.Where(m => !m.IsNotMapped))
+            {
+                try
+                {
+                    var ordinal = reader.GetOrdinal(mapping.ColumnName);
+                    if (!reader.IsDBNull(ordinal))
+                    {
+                        var dbValue = reader.GetValue(ordinal);
+                        // Convert database value to appropriate C# type
+                        var convertedValue = this.ConvertDbValueToCSharpType(dbValue, mapping.PropertyType);
+                        propertyValues[mapping.PropertyName] = convertedValue;
+                    }
+                    else
+                    {
+                        propertyValues[mapping.PropertyName] = null;
+                    }
+                }
+                catch (IndexOutOfRangeException)
+                {
+                    // Column not in result set, skip
+                    propertyValues[mapping.PropertyName] = null;
+                }
+            }
+
+            // Step 2: Try to create instance using constructor mapping
+            var entity = this.CreateInstanceWithConstructor(propertyValues);
+
+            // Step 3: Set any remaining properties that weren't set by constructor
+            this.SetRemainingProperties(entity, propertyValues);
+
+            return entity;
+        }
+
+        /// <summary>
+        /// Serializes a key value to a string representation for database storage.
+        /// </summary>
+        public virtual string SerializeKey(TKey key)
+        {
+            if (key == null)
+                return null;
+
+            var keyType = typeof(TKey);
+            var underlyingType = Nullable.GetUnderlyingType(keyType) ?? keyType;
+
+            // If TKey is string, return as-is
+            if (underlyingType == typeof(string))
+            {
+                return key.ToString();
+            }
+            // For numeric types, use ToString()
+            else if (underlyingType == typeof(int) ||
+                     underlyingType == typeof(long) ||
+                     underlyingType == typeof(short) ||
+                     underlyingType == typeof(byte) ||
+                     underlyingType == typeof(decimal) ||
+                     underlyingType == typeof(double) ||
+                     underlyingType == typeof(float))
+            {
+                return key.ToString();
+            }
+            // For DateTime types, use ISO 8601 format for SQLite compatibility
+            else if (underlyingType == typeof(DateTime))
+            {
+                return ((DateTime)(object)key).ToString("yyyy-MM-dd HH:mm:ss.fff");
+            }
+            else if (underlyingType == typeof(DateTimeOffset))
+            {
+                return ((DateTimeOffset)(object)key).ToString("yyyy-MM-dd HH:mm:ss.fffzzz");
+            }
+            // For boolean values
+            else if (underlyingType == typeof(bool))
+            {
+                return ((bool)(object)key) ? "1" : "0";
+            }
+            // For enum values, use the underlying integer value
+            else if (underlyingType.IsEnum)
+            {
+                return Convert.ToInt32(key).ToString();
+            }
+            // For Guid values
+            else if (underlyingType == typeof(Guid))
+            {
+                return ((Guid)(object)key).ToString();
+            }
+            // For other types, fall back to ToString()
+            else
+            {
+                return key.ToString();
+            }
+        }
+
+        /// <summary>
+        /// Deserializes a string representation back to the original key type.
+        /// </summary>
+        public virtual TKey DeserializeKey(string serialized)
+        {
+            if (string.IsNullOrEmpty(serialized))
+                return default(TKey);
+
+            var keyType = typeof(TKey);
+            var underlyingType = Nullable.GetUnderlyingType(keyType) ?? keyType;
+
+            try
+            {
+                // If TKey is string, return as-is
+                if (underlyingType == typeof(string))
+                {
+                    return (TKey)(object)serialized;
+                }
+                // For numeric types, parse appropriately
+                else if (underlyingType == typeof(int))
+                {
+                    return (TKey)(object)int.Parse(serialized);
+                }
+                else if (underlyingType == typeof(long))
+                {
+                    return (TKey)(object)long.Parse(serialized);
+                }
+                else if (underlyingType == typeof(short))
+                {
+                    return (TKey)(object)short.Parse(serialized);
+                }
+                else if (underlyingType == typeof(byte))
+                {
+                    return (TKey)(object)byte.Parse(serialized);
+                }
+                else if (underlyingType == typeof(decimal))
+                {
+                    return (TKey)(object)decimal.Parse(serialized);
+                }
+                else if (underlyingType == typeof(double))
+                {
+                    return (TKey)(object)double.Parse(serialized);
+                }
+                else if (underlyingType == typeof(float))
+                {
+                    return (TKey)(object)float.Parse(serialized);
+                }
+                // For DateTime types, parse from ISO 8601 format
+                else if (underlyingType == typeof(DateTime))
+                {
+                    return (TKey)(object)DateTime.Parse(serialized);
+                }
+                else if (underlyingType == typeof(DateTimeOffset))
+                {
+                    return (TKey)(object)DateTimeOffset.Parse(serialized);
+                }
+                // For boolean values
+                else if (underlyingType == typeof(bool))
+                {
+                    // Handle both "1"/"0" and "true"/"false" formats
+                    if (serialized == "1" || string.Equals(serialized, "true", StringComparison.OrdinalIgnoreCase))
+                        return (TKey)(object)true;
+                    else if (serialized == "0" || string.Equals(serialized, "false", StringComparison.OrdinalIgnoreCase))
+                        return (TKey)(object)false;
+                    else
+                        return (TKey)(object)bool.Parse(serialized);
+                }
+                // For enum values, parse from integer representation
+                else if (underlyingType.IsEnum)
+                {
+                    var enumValue = int.Parse(serialized);
+                    return (TKey)Enum.ToObject(underlyingType, enumValue);
+                }
+                // For Guid values
+                else if (underlyingType == typeof(Guid))
+                {
+                    return (TKey)(object)Guid.Parse(serialized);
+                }
+                // For other types, try Convert.ChangeType as fallback
+                else
+                {
+                    return (TKey)Convert.ChangeType(serialized, underlyingType);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    $"Unable to deserialize key value '{serialized}' to type {keyType.Name}. " +
+                    $"Original error: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// Converts a database value to the appropriate C# type.
+        /// </summary>
+        protected virtual object ConvertDbValueToCSharpType(object dbValue, Type targetType)
+        {
+            if (dbValue == null || dbValue == DBNull.Value)
+                return null;
+
+            var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+
+            // Handle common type conversions
+            if (underlyingType == typeof(string))
+            {
+                return dbValue.ToString();
+            }
+            else if (underlyingType == typeof(int))
+            {
+                return Convert.ToInt32(dbValue);
+            }
+            else if (underlyingType == typeof(long))
+            {
+                return Convert.ToInt64(dbValue);
+            }
+            else if (underlyingType == typeof(short))
+            {
+                return Convert.ToInt16(dbValue);
+            }
+            else if (underlyingType == typeof(byte))
+            {
+                return Convert.ToByte(dbValue);
+            }
+            else if (underlyingType == typeof(bool))
+            {
+                // SQLite stores booleans as integers
+                return Convert.ToBoolean(dbValue);
+            }
+            else if (underlyingType == typeof(decimal))
+            {
+                return Convert.ToDecimal(dbValue);
+            }
+            else if (underlyingType == typeof(double))
+            {
+                return Convert.ToDouble(dbValue);
+            }
+            else if (underlyingType == typeof(float))
+            {
+                return Convert.ToSingle(dbValue);
+            }
+            else if (underlyingType == typeof(DateTime))
+            {
+                if (dbValue is string dateStr)
+                {
+                    return DateTime.Parse(dateStr);
+                }
+                return Convert.ToDateTime(dbValue);
+            }
+            else if (underlyingType == typeof(DateTimeOffset))
+            {
+                if (dbValue is string dateOffsetStr)
+                {
+                    return DateTimeOffset.Parse(dateOffsetStr);
+                }
+                else if (dbValue is long unixTime)
+                {
+                    return DateTimeOffset.FromUnixTimeSeconds(unixTime);
+                }
+                return (DateTimeOffset)dbValue;
+            }
+            else if (underlyingType == typeof(TimeSpan))
+            {
+                if (dbValue is string timeStr)
+                {
+                    return TimeSpan.Parse(timeStr);
+                }
+                return (TimeSpan)dbValue;
+            }
+            else if (underlyingType == typeof(Guid))
+            {
+                if (dbValue is string guidStr)
+                {
+                    return Guid.Parse(guidStr);
+                }
+                return (Guid)dbValue;
+            }
+            else if (underlyingType.IsEnum)
+            {
+                return Enum.ToObject(underlyingType, dbValue);
+            }
+            else if (underlyingType == typeof(byte[]))
+            {
+                return (byte[])dbValue;
+            }
+
+            // For complex types, try direct conversion
+            try
+            {
+                return Convert.ChangeType(dbValue, underlyingType);
+            }
+            catch
+            {
+                // If conversion fails, return the raw value
+                return dbValue;
+            }
+        }
+
+        /// <summary>
+        /// Creates an instance of T using the most appropriate constructor based on available property values.
+        /// </summary>
+        protected virtual T CreateInstanceWithConstructor(Dictionary<string, object> propertyValues)
+        {
+            // First, look for a constructor marked with JsonConstructor attribute
+            var jsonConstructor = typeof(T).GetConstructors()
+                .FirstOrDefault(c => c.GetCustomAttribute<System.Text.Json.Serialization.JsonConstructorAttribute>() != null ||
+                                   c.GetCustomAttribute<Newtonsoft.Json.JsonConstructorAttribute>() != null);
+
+            if (jsonConstructor != null)
+            {
+                // Try to use the JsonConstructor first
+                if (this.TryInvokeConstructor(jsonConstructor, propertyValues, out T result))
+                {
+                    return result;
+                }
+            }
+
+            // Fallback: try other constructors in order of parameter count
+            var constructors = typeof(T).GetConstructors()
+                .Where(c => c != jsonConstructor) // Exclude the JsonConstructor we already tried
+                .OrderByDescending(c => c.GetParameters().Length)
+                .ToArray();
+
+            foreach (var constructor in constructors)
+            {
+                if (this.TryInvokeConstructor(constructor, propertyValues, out T result))
+                {
+                    return result;
+                }
+            }
+
+            // Fallback: try parameterless constructor
+            try
+            {
+                return Activator.CreateInstance<T>();
+            }
+            catch
+            {
+                throw new InvalidOperationException(
+                    $"Unable to create instance of type {typeof(T).Name}. " +
+                    "No suitable constructor found that matches the available property values, " +
+                    "and no parameterless constructor is available.");
+            }
+        }
+
+        /// <summary>
+        /// Attempts to invoke a constructor with the given property values.
+        /// </summary>
+        protected virtual bool TryInvokeConstructor(ConstructorInfo constructor, Dictionary<string, object> propertyValues, out T result)
+        {
+            result = default(T);
+            var parameters = constructor.GetParameters();
+            var args = new object[parameters.Length];
+            bool canUseConstructor = true;
+
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                var param = parameters[i];
+                var parameterName = this.GetParameterMappingName(param);
+
+                if (propertyValues.ContainsKey(parameterName) && propertyValues[parameterName] != null)
+                {
+                    try
+                    {
+                        // Convert the value to the parameter type if needed
+                        args[i] = this.ConvertValueToParameterType(propertyValues[parameterName], param.ParameterType);
+                    }
+                    catch
+                    {
+                        // If conversion fails, check if parameter has default value
+                        if (param.HasDefaultValue)
+                        {
+                            args[i] = param.DefaultValue;
+                        }
+                        else
+                        {
+                            canUseConstructor = false;
+                            break;
+                        }
+                    }
+                }
+                else if (param.HasDefaultValue)
+                {
+                    args[i] = param.DefaultValue;
+                }
+                else if (param.ParameterType.IsValueType)
+                {
+                    args[i] = Activator.CreateInstance(param.ParameterType);
+                }
+                else
+                {
+                    args[i] = null;
+                }
+            }
+
+            if (canUseConstructor)
+            {
+                try
+                {
+                    result = (T)constructor.Invoke(args);
+                    return true;
+                }
+                catch
+                {
+                    // Constructor invocation failed
+                    return false;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Gets the property name that a constructor parameter maps to.
+        /// For constructors marked with JsonConstructor, uses standard property name matching.
+        /// </summary>
+        protected virtual string GetParameterMappingName(ParameterInfo parameter)
+        {
+            // Check if the constructor is marked with JsonConstructor
+            var constructor = parameter.Member as ConstructorInfo;
+            bool isJsonConstructor = constructor?.GetCustomAttribute<System.Text.Json.Serialization.JsonConstructorAttribute>() != null ||
+                                   constructor?.GetCustomAttribute<Newtonsoft.Json.JsonConstructorAttribute>() != null;
+
+            if (isJsonConstructor)
+            {
+                // For JsonConstructor, we rely on parameter name matching to properties
+                // Look for a property that matches the parameter name (case-insensitive)
+                var matchingProperty = typeof(T).GetProperties()
+                    .FirstOrDefault(p => string.Equals(p.Name, parameter.Name, StringComparison.OrdinalIgnoreCase));
+
+                if (matchingProperty != null)
+                {
+                    return matchingProperty.Name;
+                }
+
+                // If no exact match, try with proper casing (parameter name -> Property name)
+                return char.ToUpper(parameter.Name[0]) + parameter.Name.Substring(1);
+            }
+
+            // For non-JsonConstructor constructors, use the original logic
+            // Check for JsonPropertyName attribute on the parameter (legacy support)
+            var jsonPropertyAttr = parameter.GetCustomAttribute<System.Text.Json.Serialization.JsonPropertyNameAttribute>();
+            if (jsonPropertyAttr != null)
+            {
+                return jsonPropertyAttr.Name;
+            }
+
+            // Check for Newtonsoft.Json JsonProperty attribute (legacy support)
+            var newtonsoftJsonAttr = parameter.GetCustomAttribute<Newtonsoft.Json.JsonPropertyAttribute>();
+            if (newtonsoftJsonAttr != null && !string.IsNullOrEmpty(newtonsoftJsonAttr.PropertyName))
+            {
+                return newtonsoftJsonAttr.PropertyName;
+            }
+
+            // Check if there's a matching property
+            var matchingProp = typeof(T).GetProperties()
+                .FirstOrDefault(p => string.Equals(p.Name, parameter.Name, StringComparison.OrdinalIgnoreCase));
+
+            if (matchingProp != null)
+            {
+                return matchingProp.Name;
+            }
+
+            // Default: use parameter name with proper casing
+            return char.ToUpper(parameter.Name[0]) + parameter.Name.Substring(1);
+        }
+
+        /// <summary>
+        /// Converts a value to the specified parameter type.
+        /// </summary>
+        protected virtual object ConvertValueToParameterType(object value, Type parameterType)
+        {
+            if (value == null)
+                return null;
+
+            if (parameterType.IsAssignableFrom(value.GetType()))
+                return value;
+
+            var underlyingType = Nullable.GetUnderlyingType(parameterType) ?? parameterType;
+            return Convert.ChangeType(value, underlyingType);
+        }
+
+        /// <summary>
+        /// Sets any properties that weren't set by the constructor.
+        /// </summary>
+        protected virtual void SetRemainingProperties(T entity, Dictionary<string, object> propertyValues)
+        {
+            foreach (var mapping in this.propertyMappings.Values.Where(m => !m.IsNotMapped))
+            {
+                if (propertyValues.ContainsKey(mapping.PropertyName))
+                {
+                    try
+                    {
+                        var currentValue = mapping.PropertyInfo.GetValue(entity);
+                        var newValue = propertyValues[mapping.PropertyName];
+
+                        // Only set if the property wasn't already set by constructor
+                        // or if the current value is the default value
+                        if (currentValue == null ||
+                            (currentValue.Equals(this.GetDefaultValue(mapping.PropertyType)) && newValue != null))
+                        {
+                            var convertedValue = this.ConvertValueToParameterType(newValue, mapping.PropertyType);
+                            mapping.PropertyInfo.SetValue(entity, convertedValue);
+                        }
+                    }
+                    catch
+                    {
+                        // Property setting failed, skip
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the default value for a type.
+        /// </summary>
+        protected virtual object GetDefaultValue(Type type)
+        {
+            if (type.IsValueType)
+            {
+                return Activator.CreateInstance(type);
+            }
+            return null;
+        }
     }
+
 }

@@ -9,11 +9,13 @@ namespace SQLite.Lib
     using System;
     using System.Collections.Generic;
     using SQLite.Lib.Contracts;
+
     /// <summary>
     /// Manages a batch of transactional operations
     /// </summary>
     /// <typeparam name="T">The entity type</typeparam>
-    public class TransactionBatch<T> : ITransactionBatch<T> where T : class
+    /// <typeparam name="TKey">The key type.</typeparam>
+    public class TransactionBatch<T, TKey> : ITransactionBatch<T, TKey> where T : class, IEntity<TKey> where TKey : IEquatable<TKey>
     {
         private readonly IPersistenceProvider<,> provider;
         private readonly List<ITransactionalOperation<T>> operations;
@@ -51,7 +53,7 @@ namespace SQLite.Lib
         public void Commit()
         {
             this.ThrowIfDisposed();
-            
+
             if (this.committed)
                 throw new InvalidOperationException("Transaction has already been committed");
 
@@ -76,13 +78,13 @@ namespace SQLite.Lib
         public void Rollback()
         {
             this.ThrowIfDisposed();
-            
+
             // Rollback each operation (though in SQLite this is mainly for cleanup)
             foreach (var operation in this.operations)
             {
                 operation.Rollback();
             }
-            
+
             // The actual SQLite rollback happens when the transaction is disposed
         }
 
