@@ -17,7 +17,7 @@ namespace SQLite.Lib
 
         public EntityAlreadyExistsException(string entityKey, string message) : base(message)
         {
-            EntityKey = entityKey;
+            this.EntityKey = entityKey;
         }
     }
 }

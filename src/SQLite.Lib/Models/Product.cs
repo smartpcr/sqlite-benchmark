@@ -3,6 +3,8 @@
 
 namespace SQLite.Lib.Models
 {
+    using SQLite.Lib.Entities;
+
     internal class Product : BaseEntity<long>
     {
         public string Name { get; set; }

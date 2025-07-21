@@ -4,7 +4,7 @@
 // </copyright>
 // -----------------------------------------------------------------------
 
-namespace SQLite.Lib.Models
+namespace SQLite.Lib.Entities
 {
     using System;
     using System.Collections.Generic;
@@ -52,7 +52,7 @@ namespace SQLite.Lib.Models
         // Method 4: Reflection-based size estimation
         public static long EstimateObjectSize(object obj)
         {
-            return EstimateObjectSize(obj, new HashSet<object>());
+            return MemorySizeEstimator.EstimateObjectSize(obj, new HashSet<object>());
         }
 
         private static long EstimateObjectSize(object obj, HashSet<object> visited)
@@ -73,7 +73,7 @@ namespace SQLite.Lib.Models
 
             if (type.IsPrimitive)
             {
-                size += GetPrimitiveSize(type);
+                size += MemorySizeEstimator.GetPrimitiveSize(type);
             }
             else if (type == typeof(string))
             {
@@ -89,13 +89,13 @@ namespace SQLite.Lib.Models
                 var elementType = type.GetElementType()!;
                 if (elementType.IsPrimitive)
                 {
-                    size += array.Length * GetPrimitiveSize(elementType);
+                    size += array.Length * MemorySizeEstimator.GetPrimitiveSize(elementType);
                 }
                 else
                 {
                     foreach (var item in array)
                     {
-                        size += EstimateObjectSize(item, visited);
+                        size += MemorySizeEstimator.EstimateObjectSize(item, visited);
                     }
                 }
             }
@@ -103,7 +103,7 @@ namespace SQLite.Lib.Models
             {
                 foreach (var item in enumerable)
                 {
-                    size += EstimateObjectSize(item, visited);
+                    size += MemorySizeEstimator.EstimateObjectSize(item, visited);
                 }
             }
             else
@@ -113,7 +113,7 @@ namespace SQLite.Lib.Models
                 {
                     if (field.FieldType.IsPrimitive)
                     {
-                        size += GetPrimitiveSize(field.FieldType);
+                        size += MemorySizeEstimator.GetPrimitiveSize(field.FieldType);
                     }
                     else
                     {
@@ -121,7 +121,7 @@ namespace SQLite.Lib.Models
                         if (fieldValue != null)
                         {
                             size += IntPtr.Size; // Reference size
-                            size += EstimateObjectSize(fieldValue, visited);
+                            size += MemorySizeEstimator.EstimateObjectSize(fieldValue, visited);
                         }
                     }
                 }

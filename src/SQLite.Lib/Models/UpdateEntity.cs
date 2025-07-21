@@ -8,6 +8,7 @@ namespace SQLite.Lib.Models
 {
     using System;
     using System.Collections.Generic;
+    using SQLite.Lib.Entities;
 
     /// <summary>
     /// Represents a software update entity with metadata and tracking information.

@@ -23,6 +23,13 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{E5F6A7B8-C
 		docs\architecture.md = docs\architecture.md
 		docs\design.md = docs\design.md
 		docs\practices.md = docs\practices.md
+		docs\persistence.md = docs\persistence.md
+		docs\persistence_appendix_a_sqlite_cache_schema.md = docs\persistence_appendix_a_sqlite_cache_schema.md
+		docs\persistence_appendix_b_updatehistory_schema.md = docs\persistence_appendix_b_updatehistory_schema.md
+		docs\persistence_appendix_c_core_contracts.md = docs\persistence_appendix_c_core_contracts.md
+		docs\persistence_appendix_d_transaction_management.md = docs\persistence_appendix_d_transaction_management.md
+		docs\persistence_appendix_e_implementation.md = docs\persistence_appendix_e_implementation.md
+		docs\persistence_appendix_f_entity_examples.md = docs\persistence_appendix_f_entity_examples.md
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SQLite.Failover", "src\SQLite.Failover\SQLite.Failover.csproj", "{1A091545-A025-43F5-AA5F-DE1BBD026DA2}"

@@ -4,7 +4,7 @@
 // </copyright>
 // -----------------------------------------------------------------------
 
-namespace SQLite.Lib.Models
+namespace SQLite.Lib.Entities
 {
     using System;
     using System.Runtime.InteropServices;
@@ -48,7 +48,7 @@ namespace SQLite.Lib.Models
             // return *(int*)(methodTable + 4);
 
             // Safer to use our estimation method
-            return EstimateObjectSize(obj);
+            return UnsafeSizeCalculator.EstimateObjectSize(obj);
         }
 
         private static long EstimateObjectSize(object obj)
