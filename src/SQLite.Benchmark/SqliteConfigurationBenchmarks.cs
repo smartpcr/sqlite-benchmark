@@ -1,29 +1,31 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
-using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Columns;
-using BenchmarkDotNet.Configs;
-using BenchmarkDotNet.Diagnosers;
-using BenchmarkDotNet.Jobs;
-using BenchmarkDotNet.Loggers;
-using BenchmarkDotNet.Reports;
-using BenchmarkDotNet.Running;
-using SQLite.Lib;
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
 
 namespace SQLite.Benchmark
 {
+    using System;
+    using System.Collections.Generic;
+    using System.IO;
+    using System.Linq;
+    using System.Threading.Tasks;
+    using BenchmarkDotNet.Attributes;
+    using BenchmarkDotNet.Columns;
+    using BenchmarkDotNet.Configs;
+    using BenchmarkDotNet.Diagnosers;
+    using BenchmarkDotNet.Jobs;
+    using BenchmarkDotNet.Loggers;
+    using BenchmarkDotNet.Reports;
+    using BenchmarkDotNet.Running;
+    using SQLite.Lib;
     [Config(typeof(ConfigBenchmarkConfig))]
     [MemoryDiagnoser]
     public class SqliteConfigurationBenchmarks
     {
         private const string DbFolder = @"C:\ClusterStorage\Infrastructure_1\Shares\SU1_Infrastructure_1\Updates\ReliableStore";
-        private ConfigurableSqliteProvider<BenchmarkEntity> _provider = null!;
-        private string _dbPath = null!;
-        private List<BenchmarkEntity> _testData = null!;
-        private List<long> _existingIds = null!;
+        private ConfigurablePersistenceProvider<BenchmarkEntity> provider = null!;
+        private string dbPath = null!;
+        private List<BenchmarkEntity> testData = null!;
+        private List<long> existingIds = null!;
 
         // Configuration parameters
         [Params(-500, -2000, -5000)] // 500KB, 2MB, 5MB in bytes
@@ -55,8 +57,8 @@ namespace SQLite.Benchmark
                 Directory.CreateDirectory(DbFolder);
             }
 
-            _dbPath = Path.Combine(SqliteConfigurationBenchmarks.DbFolder, $"config_benchmark_{Guid.NewGuid()}.db");
-            var connectionString = $"Data Source={_dbPath};Version=3;";
+            this.dbPath = Path.Combine(DbFolder, $"config_benchmark_{Guid.NewGuid()}.db");
+            var connectionString = $"Data Source={this.dbPath};Version=3;";
 
             var config = new SqliteConfiguration
             {
@@ -68,13 +70,13 @@ namespace SQLite.Benchmark
                 EnableForeignKeys = this.EnableForeignKeys
             };
 
-            _provider = new ConfigurableSqliteProvider<BenchmarkEntity>(connectionString, config);
-            _provider.CreateTable();
+            this.provider = new ConfigurablePersistenceProvider<BenchmarkEntity>(connectionString, config);
+            this.provider.CreateTable();
 
             // Prepare test data with varying payload sizes
-            var payloadData = GeneratePayloadData();
+            var payloadData = this.GeneratePayloadData();
 
-            _testData = Enumerable.Range(1, RecordCount)
+            this.testData = Enumerable.Range(1, this.RecordCount)
                 .Select(i => new BenchmarkEntity
                 {
                     Name = $"Entity {i}",
@@ -87,13 +89,13 @@ namespace SQLite.Benchmark
                 .ToList();
 
             // Insert initial data for read benchmarks
-            _provider.InsertBatch(_testData.Take(RecordCount / 2));
-            _existingIds = _provider.GetAll().Select(e => e.Id).ToList();
+            this.provider.InsertBatch(this.testData.Take(this.RecordCount / 2));
+            this.existingIds = this.provider.GetAll().Select(e => e.Id).ToList();
         }
 
-        private string GeneratePayloadData()
+        private string this.GeneratePayloadData()
         {
-            int payloadSizeInBytes = PayloadSize switch
+            int payloadSizeInBytes = this.PayloadSize switch
             {
                 "small" => 1024,        // 1KB
                 "medium" => 1048576,    // 1MB
@@ -115,13 +117,13 @@ namespace SQLite.Benchmark
         [GlobalCleanup]
         public void Cleanup()
         {
-            _provider = null!;
+            this.provider = null!;
             GC.Collect();
             GC.WaitForPendingFinalizers();
 
-            if (File.Exists(_dbPath))
+            if (File.Exists(this.dbPath))
             {
-                try { File.Delete(_dbPath); }
+                try { File.Delete(this.dbPath); }
                 catch { }
             }
         }
@@ -132,7 +134,7 @@ namespace SQLite.Benchmark
             var count = 0;
             for (int i = 0; i < 100; i++)
             {
-                _provider.Insert(_testData[i % _testData.Count]);
+                this.provider.Insert(this.testData[i % this.testData.Count]);
                 count++;
             }
             return count;
@@ -141,10 +143,10 @@ namespace SQLite.Benchmark
         [Benchmark]
         public int BatchInsertWithTransaction()
         {
-            using (_provider.BeginTransaction())
+            using (this.provider.BeginTransaction())
             {
-                var batch = _testData.Take(100).ToList();
-                return _provider.InsertBatch(batch);
+                var batch = this.testData.Take(100).ToList();
+                return this.provider.InsertBatch(batch);
             }
         }
 
@@ -152,9 +154,9 @@ namespace SQLite.Benchmark
         public List<BenchmarkEntity> SequentialReads()
         {
             var results = new List<BenchmarkEntity>();
-            foreach (var id in _existingIds.Take(100))
+            foreach (var id in this.existingIds.Take(100))
             {
-                results.Add(_provider.GetById(id));
+                results.Add(this.provider.GetById(id));
             }
             return results;
         }
@@ -162,13 +164,13 @@ namespace SQLite.Benchmark
         [Benchmark]
         public List<BenchmarkEntity> BulkRead()
         {
-            return _provider.GetAll().ToList();
+            return this.provider.GetAll().ToList();
         }
 
         [Benchmark]
         public List<BenchmarkEntity> FilteredRead()
         {
-            return _provider.Find(e => e.IsActive && e.Value > RecordCount / 4).ToList();
+            return this.provider.Find(e => e.IsActive && e.Value > this.RecordCount / 4).ToList();
         }
 
         [Benchmark]
@@ -177,25 +179,25 @@ namespace SQLite.Benchmark
             var operations = 0;
 
             // Insert
-            _provider.Insert(_testData[operations % _testData.Count]);
+            this.provider.Insert(this.testData[operations % this.testData.Count]);
             operations++;
 
             // Read
-            var entity = _provider.GetById(_existingIds[operations % _existingIds.Count]);
+            var entity = this.provider.GetById(this.existingIds[operations % this.existingIds.Count]);
             operations++;
 
             // Update
             if (entity != null)
             {
                 entity.Name = "Updated " + entity.Name;
-                _provider.Update(entity);
+                this.provider.Update(entity);
                 operations++;
             }
 
             // Delete
-            if (_existingIds.Count > 10)
+            if (this.existingIds.Count > 10)
             {
-                _provider.Delete(_existingIds[operations % 10]);
+                this.provider.Delete(this.existingIds[operations % 10]);
                 operations++;
             }
 
@@ -211,30 +213,30 @@ namespace SQLite.Benchmark
             tasks[0] = Task.Run(() =>
             {
                 for (int i = 0; i < 25; i++)
-                    _provider.GetAll().Count();
+                    this.provider.GetAll().Count();
             });
 
             tasks[1] = Task.Run(() =>
             {
                 for (int i = 0; i < 25; i++)
-                    _provider.Insert(new BenchmarkEntity { Name = $"Concurrent {i}", Value = i });
+                    this.provider.Insert(new BenchmarkEntity { Name = $"Concurrent {i}", Value = i });
             });
 
             tasks[2] = Task.Run(() =>
             {
                 for (int i = 0; i < 25; i++)
                 {
-                    var id = _existingIds[i % _existingIds.Count];
-                    _provider.GetById(id);
+                    var id = this.existingIds[i % this.existingIds.Count];
+                    this.provider.GetById(id);
                 }
             });
 
             tasks[3] = Task.Run(() =>
             {
-                using (_provider.BeginTransaction())
+                using (this.provider.BeginTransaction())
                 {
                     for (int i = 0; i < 10; i++)
-                        _provider.Insert(new BenchmarkEntity { Name = $"Transaction {i}", Value = i });
+                        this.provider.Insert(new BenchmarkEntity { Name = $"Transaction {i}", Value = i });
                 }
             });
 
@@ -252,7 +254,7 @@ namespace SQLite.Benchmark
                 ORDER BY json_extract(Data, '$.Value') DESC
                 LIMIT 50";
 
-            _provider.ExecuteQuery(sql, new { minValue = RecordCount / 2 }).ToList();
+            this.provider.ExecuteQuery(sql, new { minValue = this.RecordCount / 2 }).ToList();
         }
     }
 
@@ -275,23 +277,30 @@ namespace SQLite.Benchmark
 
     public class TagColumn : IColumn
     {
-        private readonly string _columnName;
-        private readonly Func<SqliteConfigurationBenchmarks, string> _valueProvider;
+        private readonly string columnName;
+        private readonly Func<SqliteConfigurationBenchmarks, string> valueProvider;
 
         public TagColumn(string columnName, Func<SqliteConfigurationBenchmarks, string> valueProvider)
         {
-            _columnName = columnName;
-            _valueProvider = valueProvider;
+            this.columnName = columnName;
+            this.valueProvider = valueProvider;
         }
 
-        public string Id => _columnName;
-        public string ColumnName => _columnName;
+        public string Id => this.columnName;
+
+        public string ColumnName => this.columnName;
+
         public bool AlwaysShow => true;
+
         public ColumnCategory Category => ColumnCategory.Params;
+
         public int PriorityInCategory => 0;
+
         public bool IsNumeric => false;
+
         public UnitType UnitType => UnitType.Dimensionless;
-        public string Legend => $"{_columnName} configuration value";
+
+        public string Legend => $"{this.columnName} configuration value";
 
         public string GetValue(Summary summary, BenchmarkCase benchmarkCase)
         {
@@ -299,7 +308,7 @@ namespace SQLite.Benchmark
             if (instance != null)
             {
                 // Set the parameter value from the benchmark case
-                var paramName = _columnName switch
+                var paramName = this.columnName switch
                 {
                     "Cache" => "CacheSize",
                     "Page" => "PageSize",
@@ -307,7 +316,7 @@ namespace SQLite.Benchmark
                     "Sync" => "SynchronousMode",
                     "PayloadSize" => "PayloadSize",
                     "ForeignKeys" => "EnableForeignKeys",
-                    _ => _columnName
+                    _ => this.columnName
                 };
 
                 var param = benchmarkCase.Parameters.Items.FirstOrDefault(p => p.Name == paramName);

@@ -7,7 +7,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Serilog;
 using Serilog.Extensions.Logging;
-using SQLite.Failover;
 using SQLite.Lib;
 
 namespace SQLite.Tests
@@ -17,7 +16,7 @@ namespace SQLite.Tests
     {
         private string databasePath;
         private string dataDirectory;
-        private ILogger<SqliteProvider<Product>> logger;
+        private ILogger<PersistenceProvider<Product>> logger;
         private ILoggerFactory loggerFactory;
 
         [TestInitialize]
@@ -29,7 +28,7 @@ namespace SQLite.Tests
                 .CreateLogger();
 
             this.loggerFactory = new SerilogLoggerFactory(serilogLogger);
-            this.logger = this.loggerFactory.CreateLogger<SqliteProvider<Product>>();
+            this.logger = this.loggerFactory.CreateLogger<PersistenceProvider<Product>>();
 
             // Create data directory
             this.dataDirectory = Path.Combine(Directory.GetCurrentDirectory(), "data");
@@ -180,7 +179,7 @@ namespace SQLite.Tests
             this.logger.LogInformation("Verifying final state and consistency...");
 
             var connectionString = $"Data Source={this.databasePath};Version=3;";
-            var provider = new SqliteProvider<Product>(connectionString, this.logger);
+            var provider = new PersistenceProvider<Product>(connectionString, this.logger);
             var products = provider.GetAll().OrderBy(p => p.Id).ToList();
 
             Assert.AreEqual(100, products.Count, "Should have 100 products");

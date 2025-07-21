@@ -1,100 +1,62 @@
-# EditorConfig is awesome: https://EditorConfig.org
-
-# top-most EditorConfig file
+# Remove the line below if you want to inherit .editorconfig settings from higher directories
 root = true
 
-# All files
 [*]
-charset = utf-8
+
+indent_size = 2
 indent_style = space
-indent_size = 2
-insert_final_newline = true
+tab_width = 2
+end_of_line = crlf
+insert_final_newline = false
 trim_trailing_whitespace = true
-end_of_line = lf
 
-# Code files
-[*.{cs,csx,vb,vbx}]
-indent_size = 4
+# Organize using statements
+dotnet_separate_import_directive_groups = false
+dotnet_sort_system_directives_first = true
+csharp_using_directive_placement = inside_namespace:warning
 
-# C# files
-[*.cs]
-# New line preferences
-csharp_new_line_before_open_brace = all
-csharp_new_line_before_else = true
-csharp_new_line_before_catch = true
-csharp_new_line_before_finally = true
-csharp_new_line_before_members_in_object_initializers = true
-csharp_new_line_before_members_in_anonymous_types = true
-csharp_new_line_between_query_expression_clauses = true
-
-# Indentation preferences
-csharp_indent_case_contents = true
-csharp_indent_switch_labels = true
-csharp_indent_labels = flush_left
-
-# Space preferences
-csharp_space_after_cast = false
-csharp_space_after_keywords_in_control_flow_statements = true
-csharp_space_between_method_declaration_parameter_list_parentheses = false
-csharp_space_between_method_declaration_empty_parameter_list_parentheses = false
-csharp_space_between_method_call_parameter_list_parentheses = false
-csharp_space_between_method_call_empty_parameter_list_parentheses = false
-csharp_space_between_method_call_name_and_opening_parenthesis = false
-csharp_space_after_comma = true
-csharp_space_after_dot = false
-csharp_space_after_semicolon_in_for_statement = true
-csharp_space_around_binary_operators = before_and_after
-csharp_space_before_open_square_brackets = false
-csharp_space_between_empty_square_brackets = false
-csharp_space_between_square_brackets = false
-
-# Wrapping preferences
-csharp_preserve_single_line_blocks = true
-csharp_preserve_single_line_statements = true
-
-# Code style rules
-csharp_prefer_braces = true:warning
-csharp_prefer_simple_using_statement = true:suggestion
-
-# Expression preferences
-csharp_prefer_simple_default_expression = true:suggestion
-csharp_style_deconstructed_variable_declaration = true:suggestion
-csharp_style_inlined_variable_declaration = true:suggestion
-csharp_style_pattern_local_over_anonymous_function = true:suggestion
-csharp_style_prefer_index_operator = true:suggestion
-csharp_style_prefer_range_operator = true:suggestion
-
-# C# formatting rules
-csharp_using_directive_placement = outside_namespace:warning
-csharp_style_namespace_declarations = file_scoped:warning
-
-# Naming conventions
-dotnet_naming_rule.interfaces_should_be_prefixed_with_i.severity = warning
-dotnet_naming_rule.interfaces_should_be_prefixed_with_i.symbols = interface_symbols
-dotnet_naming_rule.interfaces_should_be_prefixed_with_i.style = prefix_interface_with_i
-
-dotnet_naming_symbols.interface_symbols.applicable_kinds = interface
-dotnet_naming_symbols.interface_symbols.applicable_accessibilities = *
-
-dotnet_naming_style.prefix_interface_with_i.required_prefix = I
-dotnet_naming_style.prefix_interface_with_i.capitalization = pascal_case
-
-# XML project files
-[*.{csproj,vbproj,vcxproj,vcxproj.filters,proj,projitems,shproj}]
-indent_size = 2
+# file header
+file_header_template = -----------------------------------------------------------------------\n<copyright file="{fileName}" company="Microsoft Corp.">\n    Copyright (c) Microsoft Corp. All rights reserved.\n</copyright>\n-----------------------------------------------------------------------
 
 # JSON files
-[*.json]
-indent_size = 2
+[*.{sh,bash}]
+end_of_line = lf
 
-# YAML files
-[*.{yml,yaml}]
-indent_size = 2
+[*.{cs,ps1}]
+indent_size = 4
+tab_width = 4
 
-# Markdown files
-[*.md]
-trim_trailing_whitespace = false
+[*.cs]
 
-# Solution files
-[*.sln]
-indent_style = tab
+# Enforce 'this' qualifier for instance members
+dotnet_style_qualification_for_field = true:warning
+dotnet_style_qualification_for_property = true:warning
+dotnet_style_qualification_for_method = true:warning
+dotnet_style_qualification_for_event = true:warning
+
+# var preferences
+csharp_style_var_elsewhere = true:suggestion
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+
+# Enforce naming rules for private fields without underscore
+dotnet_naming_rule.private_fields_camel_case.severity = warning
+dotnet_naming_rule.private_fields_camel_case.symbols = private_fields
+dotnet_naming_rule.private_fields_camel_case.style = camel_case_style
+
+# Enforce naming rules for private static fields without underscore
+dotnet_naming_rule.private_static_fields_camel_case.severity = warning
+dotnet_naming_rule.private_static_fields_camel_case.symbols = private_static_fields
+dotnet_naming_rule.private_static_fields_camel_case.style = camel_case_style
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_symbols.private_fields.required_modifiers =
+
+dotnet_naming_symbols.private_static_fields.applicable_kinds = field
+dotnet_naming_symbols.private_static_fields.applicable_accessibilities = private
+dotnet_naming_symbols.private_static_fields.required_modifiers = static
+
+dotnet_naming_style.camel_case_style.capitalization = camel_case
+dotnet_naming_style.camel_case_style.required_prefix =
+dotnet_naming_style.camel_case_style.required_suffix =

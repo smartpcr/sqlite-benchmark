@@ -1,15 +1,17 @@
-using System;
-using System.Data.SQLite;
-using System.Linq;
-using System.Threading;
-using CommandLine;
-using Microsoft.Extensions.Logging;
-using Serilog;
-using Serilog.Extensions.Logging;
-using SQLite.Lib;
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
 
 namespace SQLite.Failover
 {
+    using System;
+    using System.Data.SQLite;
+    using System.Linq;
+    using System.Threading;
+    using CommandLine;
+    using Microsoft.Extensions.Logging;
+    using Serilog;
+    using Serilog.Extensions.Logging;
+    using SQLite.Lib;
     class Program
     {
         public class Options
@@ -57,7 +59,7 @@ namespace SQLite.Failover
                 .CreateLogger();
 
             var loggerFactory = new SerilogLoggerFactory(logger);
-            var instanceLogger = loggerFactory.CreateLogger<SqliteProvider<Product>>();
+            var instanceLogger = loggerFactory.CreateLogger<SQLiteProvider<Product>>();
 
             logger.Information("Starting {Instance} - Mode: {Mode}, Loops: {Loops}, Database: {Database}",
                 options.InstanceName, options.Mode, options.Loops, options.DatabasePath);
@@ -74,7 +76,7 @@ namespace SQLite.Failover
                 // Create connection string with retry timeout
                 var connectionString = $"Data Source={options.DatabasePath};Version=3;Journal Mode=WAL;Busy Timeout={options.RetryTimeout};";
 
-                var provider = new SqliteProvider<Product>(connectionString, instanceLogger);
+                var provider = new SQLiteProvider<Product>(connectionString, instanceLogger);
 
                 if (options.Mode.ToLower() == "init")
                 {
@@ -116,7 +118,7 @@ namespace SQLite.Failover
             }
         }
 
-        static void InitializeDatabase(SqliteProvider<Product> provider, int productCount, Serilog.ILogger logger)
+        static void InitializeDatabase(SQLiteProvider<Product> provider, int productCount, Serilog.ILogger logger)
         {
             logger.Information("Initializing database with {Count} products", productCount);
 
@@ -152,7 +154,7 @@ namespace SQLite.Failover
             logger.Information("Successfully initialized {Count} products", productCount);
         }
 
-        static void UpdatePrices(SqliteProvider<Product> provider, int loops, string instanceName, Serilog.ILogger logger)
+        static void UpdatePrices(SQLiteProvider<Product> provider, int loops, string instanceName, Serilog.ILogger logger)
         {
             logger.Information("{Instance} starting price updates for {Loops} loops", instanceName, loops);
 

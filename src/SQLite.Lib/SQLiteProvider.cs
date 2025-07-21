@@ -4,10 +4,9 @@ using System.Data;
 using System.Data.SQLite;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Reflection;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
-using SQLite.Lib.Abstractions;
+using SQLite.Lib.Contracts;
 
 namespace SQLite.Lib
 {
@@ -15,22 +14,17 @@ namespace SQLite.Lib
     /// <summary>
     /// Generic SQLite provider for CRUD operations
     /// </summary>
-    /// <typeparam name="T">Entity type</typeparam>
-    public class SqliteProvider<T> : ISqliteProvider<T> where T : class, new()
+    public class SQLiteProvider : IPersistenceProvider
     {
-        private readonly string _connectionString;
-        private readonly ILogger<SqliteProvider<T>> _logger;
-        private readonly string _tableName;
-        private readonly PropertyInfo _idProperty;
+        private readonly string connectionString;
+        private readonly ILogger<SQLiteProvider> logger;
         private SQLiteConnection _currentConnection;
         private SQLiteTransaction _currentTransaction;
 
-        public SqliteProvider(string connectionString, ILogger<SqliteProvider<T>> logger = null)
+        public SQLiteProvider(string connectionString, ILogger<SQLiteProvider> logger = null)
         {
-            this._connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
-            this._logger = logger;
-            this._tableName = typeof(T).Name;
-            this._idProperty = typeof(T).GetProperty("Id") ?? throw new InvalidOperationException($"Type {typeof(T).Name} must have an Id property");
+            this.connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+            this.logger = logger;
 
             this.Initialize();
         }
@@ -59,7 +53,7 @@ namespace SQLite.Lib
 
         private SQLiteConnection CreateConnection()
         {
-            return new SQLiteConnection(this._connectionString);
+            return new SQLiteConnection(this.connectionString);
         }
 
         private SQLiteConnection GetConnection()
@@ -81,7 +75,7 @@ namespace SQLite.Lib
                 CREATE INDEX IF NOT EXISTS idx_{this._tableName}_updated ON {this._tableName}(UpdatedAt);";
 
             this.ExecuteCommand(sql);
-            this._logger?.LogInformation($"Table {this._tableName} created or verified");
+            this.logger?.LogInformation($"Table {this._tableName} created or verified");
         }
 
         public T Insert(T entity)
@@ -114,7 +108,7 @@ namespace SQLite.Lib
                     var id = Convert.ToInt64(cmd.ExecuteScalar());
                     this._idProperty.SetValue(entity, id);
 
-                    this._logger?.LogDebug($"Inserted entity with ID {id} into {this._tableName}");
+                    this.logger?.LogDebug($"Inserted entity with ID {id} into {this._tableName}");
                     return entity;
                 }
             }
@@ -156,7 +150,7 @@ namespace SQLite.Lib
                 count = this.InsertBatchInternal(entityList);
             }
 
-            this._logger?.LogInformation($"Batch inserted {count} entities into {this._tableName}");
+            this.logger?.LogInformation($"Batch inserted {count} entities into {this._tableName}");
             return count;
         }
 
@@ -198,7 +192,7 @@ namespace SQLite.Lib
             var sql = $"UPDATE {this._tableName} SET Data = @data, UpdatedAt = CURRENT_TIMESTAMP WHERE Id = @id";
 
             var affected = this.ExecuteCommand(sql, new { data = json, id = id });
-            this._logger?.LogDebug($"Updated entity with ID {id} in {this._tableName}");
+            this.logger?.LogDebug($"Updated entity with ID {id} in {this._tableName}");
 
             return affected > 0;
         }
@@ -208,7 +202,7 @@ namespace SQLite.Lib
             var sql = $"DELETE FROM {this._tableName} WHERE Id = @id";
             var affected = this.ExecuteCommand(sql, new { id = id });
 
-            this._logger?.LogDebug($"Deleted entity with ID {id} from {this._tableName}");
+            this.logger?.LogDebug($"Deleted entity with ID {id} from {this._tableName}");
             return affected > 0;
         }
 
@@ -405,18 +399,18 @@ namespace SQLite.Lib
         // Transaction scope that provides implicit commit behavior for backward compatibility
         private class TransactionScope : IDisposable
         {
-            private readonly SqliteProvider<T> _provider;
+            private readonly PersistenceProvider<T> _provider;
             private readonly SQLiteTransaction _transaction;
             private readonly SQLiteConnection _connection;
             private bool _disposed;
             private Exception _firstException;
 
-            public TransactionScope(SqliteProvider<T> provider)
+            public TransactionScope(PersistenceProvider<T> provider)
             {
                 this._provider = provider;
                 this._transaction = provider._currentTransaction;
                 this._connection = provider._currentConnection;
-                
+
                 // Register for first chance exceptions to detect if any exception occurs
                 AppDomain.CurrentDomain.FirstChanceException += OnFirstChanceException;
             }
@@ -461,7 +455,7 @@ namespace SQLite.Lib
                     catch (Exception ex)
                     {
                         this._provider._logger?.LogError(ex, "Error during transaction finalization");
-                        
+
                         // Try to rollback if commit failed
                         try
                         {
@@ -471,7 +465,7 @@ namespace SQLite.Lib
                         {
                             // Ignore rollback errors
                         }
-                        
+
                         // Re-throw only if we were trying to commit
                         if (_firstException == null)
                             throw;
@@ -480,7 +474,7 @@ namespace SQLite.Lib
                     {
                         // Always clean up
                         _transaction.Dispose();
-                        _connection?.Close();  
+                        _connection?.Close();
                         _connection?.Dispose();
                     }
                 }
@@ -507,25 +501,93 @@ namespace SQLite.Lib
         public void Vacuum()
         {
             this.ExecuteCommand("VACUUM");
-            this._logger?.LogInformation($"Vacuum completed for {this._tableName}");
+            this.logger?.LogInformation($"Vacuum completed for {this._tableName}");
         }
 
         public void Analyze()
         {
             this.ExecuteCommand($"ANALYZE {this._tableName}");
-            this._logger?.LogInformation($"Analyze completed for {this._tableName}");
+            this.logger?.LogInformation($"Analyze completed for {this._tableName}");
         }
-    }
 
-    internal static class TypeExtensions
-    {
-        public static bool IsAnonymousType(this Type type)
+        public void EnsureTable<T, TKey>() where T : class, IEntity<TKey>, new() where TKey : IEquatable<TKey>
         {
-            return type.IsClass
-                   && type.IsSealed
-                   && type.Attributes.HasFlag(TypeAttributes.NotPublic)
-                   && type.Name.StartsWith("<>")
-                   && type.Name.Contains("AnonymousType");
+            using var connection = this.CreateConnection();
+            connection.Open();
+
+            // Enable foreign keys
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.CommandText = "PRAGMA foreign_keys = ON;";
+                cmd.ExecuteNonQuery();
+            }
+
+            // Set journal mode to WAL for better concurrency
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.CommandText = "PRAGMA journal_mode = WAL;";
+                cmd.ExecuteNonQuery();
+            }
+
+            T entity = new T();
+            var sql = $@"
+                CREATE TABLE IF NOT EXISTS {entity.TableName} (
+                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Data TEXT NOT NULL,
+                    CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UpdatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_{this._tableName}_created ON {this._tableName}(CreatedAt);
+                CREATE INDEX IF NOT EXISTS idx_{this._tableName}_updated ON {this._tableName}(UpdatedAt);";
+
+            this.ExecuteCommand(sql);
+            this.logger?.LogInformation($"Table {this._tableName} created or verified");
+        }
+
+        public T GetById<T, TKey>(TKey id) where T : class, IEntity<TKey>, new() where TKey : IEquatable<TKey>
+        {
+            throw new NotImplementedException();
+        }
+
+        public IEnumerable<T> GetAll<T, TKey>() where T : class, IEntity<TKey>, new() where TKey : IEquatable<TKey>
+        {
+            throw new NotImplementedException();
+        }
+
+        public IEnumerable<T> Find<T, TKey>(Expression<Func<T, bool>> predicate) where T : class, IEntity<TKey>, new() where TKey : IEquatable<TKey>
+        {
+            throw new NotImplementedException();
+        }
+
+        public long Count<T, TKey>() where T : class, IEntity<TKey>, new() where TKey : IEquatable<TKey>
+        {
+            throw new NotImplementedException();
+        }
+
+        public long Count<T, TKey>(Expression<Func<T, bool>> predicate) where T : class, IEntity<TKey>, new() where TKey : IEquatable<TKey>
+        {
+            throw new NotImplementedException();
+        }
+
+        public T Insert<T, TKey>(T entity) where T : class, IEntity<TKey>, new() where TKey : IEquatable<TKey>
+        {
+            throw new NotImplementedException();
+        }
+
+        public int InsertBatch<T, TKey>(IEnumerable<T> entities) where T : class, IEntity<TKey>, new() where TKey : IEquatable<TKey>
+        {
+            throw new NotImplementedException();
+        }
+
+        public bool Update<T, TKey>(T entity) where T : class, IEntity<TKey>, new() where TKey : IEquatable<TKey>
+        {
+            throw new NotImplementedException();
+        }
+
+        public bool Delete<T, TKey>(TKey id) where T : class, IEntity<TKey>, new() where TKey : IEquatable<TKey>
+        {
+            throw new NotImplementedException();
         }
     }
 }
