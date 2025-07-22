@@ -510,13 +510,15 @@ erDiagram
     }
     
     CacheEntry {
-        TEXT CacheKey PK
-        INTEGER Version PK,FK "References global Version"
-        TEXT TypeName FK "NOT NULL"
-        TEXT AssemblyVersion FK "NOT NULL"
+        TEXT CacheKey PK "NOT NULL"
+        INTEGER Version PK,FK "NOT NULL, References Version"
+        TEXT TypeName FK "NOT NULL, Part of composite FK to CacheEntity"
+        TEXT AssemblyVersion FK "NOT NULL, Part of composite FK to CacheEntity"
         BLOB Data "NOT NULL"
-        INTEGER AbsoluteExpiration "NULL"
         INTEGER Size "NOT NULL"
+        TEXT AbsoluteExpiration
+        INTEGER SlidingExpirationSeconds
+        TEXT Tags
         INTEGER IsDeleted "NOT NULL DEFAULT 0"
         TEXT CreatedTime "NOT NULL DEFAULT datetime('now')"
         TEXT LastWriteTime "NOT NULL DEFAULT datetime('now')"

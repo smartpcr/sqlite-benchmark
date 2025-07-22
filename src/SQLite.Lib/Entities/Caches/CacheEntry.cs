@@ -7,9 +7,11 @@
 namespace SQLite.Lib.Entities.Caches
 {
     using System;
+    using System.Data;
     using System.Runtime.Serialization;
     using Newtonsoft.Json;
     using SQLite.Lib.Contracts;
+    using SQLite.Lib.Mappings;
     using SQLite.Lib.Models;
 
     /// <summary>
@@ -18,6 +20,7 @@ namespace SQLite.Lib.Entities.Caches
     /// </summary>
     /// <typeparam name="T">The type of the cached value.</typeparam>
     [DataContract]
+    [Table("CacheEntry")]
     public class CacheEntry<T> : BaseEntity<string> where T : class, IEntity<string>
     {
         /// <summary>
@@ -25,27 +28,43 @@ namespace SQLite.Lib.Entities.Caches
         /// </summary>
         [DataMember]
         [JsonProperty("value")]
+        [NotMapped] // The actual Value property is not mapped directly - we use serialization
         public T Value { get; set; }
+
+        /// <summary>
+        /// Gets or sets the serialized data for database storage.
+        /// </summary>
+        [DataMember]
+        [JsonProperty("data")]
+        [Column("Data", SQLiteDbType.Blob, NotNull = true)]
+        public byte[] Data { get; set; }
 
         /// <summary>
         /// Gets or sets the type name of the cached value for deserialization.
         /// </summary>
         [DataMember]
         [JsonProperty("typeName")]
+        [Column("TypeName", SQLiteDbType.Text, NotNull = true)]
+        [Index("IX_CacheEntry_Type")]
+        [ForeignKey("CacheEntity", "TypeName", Name = "FK_CacheEntry_CacheEntity", Ordinal = 0)]
         public string TypeName { get; set; }
 
+
         /// <summary>
-        /// Gets or sets the assembly-qualified type name for version-safe deserialization.
+        /// Gets or sets the assembly version for type compatibility checking.
         /// </summary>
         [DataMember]
-        [JsonProperty("assemblyQualifiedName")]
-        public string AssemblyQualifiedName { get; set; }
+        [JsonProperty("assemblyVersion")]
+        [Column("AssemblyVersion", SQLiteDbType.Text, NotNull = true)]
+        [ForeignKey("CacheEntity", "AssemblyVersion", Name = "FK_CacheEntry_CacheEntity", Ordinal = 1)]
+        public string AssemblyVersion { get; set; }
 
         /// <summary>
         /// Gets or sets the size of the serialized value in bytes.
         /// </summary>
         [DataMember]
         [JsonProperty("size")]
+        [Column("Size", SQLiteDbType.Integer, NotNull = true)]
         public long Size { get; set; }
 
         /// <summary>
@@ -54,6 +73,8 @@ namespace SQLite.Lib.Entities.Caches
         /// </summary>
         [DataMember]
         [JsonProperty("absoluteExpiration")]
+        [Column("AbsoluteExpiration", SQLiteDbType.Text)]
+        [Index("IX_CacheEntry_AbsoluteExpiration")]
         public DateTimeOffset? AbsoluteExpiration { get; set; }
 
         /// <summary>
@@ -62,6 +83,7 @@ namespace SQLite.Lib.Entities.Caches
         /// </summary>
         [DataMember]
         [JsonProperty("slidingExpiration")]
+        [Column("SlidingExpirationSeconds", SQLiteDbType.Integer)]
         public TimeSpan? SlidingExpiration { get; set; }
 
         /// <summary>
@@ -69,6 +91,8 @@ namespace SQLite.Lib.Entities.Caches
         /// </summary>
         [DataMember]
         [JsonProperty("tags")]
+        [Column("Tags", SQLiteDbType.Text)]
+        [Index("IX_CacheEntry_Tags")]
         public string[] Tags { get; set; }
 
         /// <summary>
@@ -80,12 +104,13 @@ namespace SQLite.Lib.Entities.Caches
         /// <returns>A new CacheEntry&lt;T&gt; instance.</returns>
         public static CacheEntry<T> Create(string key, T value, CacheEntryOptions options = null)
         {
+            var type = typeof(T);
             var entry = new CacheEntry<T>
             {
                 Id = key,
                 Value = value,
-                TypeName = typeof(T).Name,
-                AssemblyQualifiedName = typeof(T).AssemblyQualifiedName,
+                TypeName = type.Name,
+                AssemblyVersion = type.Assembly.GetName().Version?.ToString(),
                 CreatedTime = DateTimeOffset.UtcNow,
                 LastWriteTime = DateTimeOffset.UtcNow,
                 Version = 1,
@@ -97,7 +122,6 @@ namespace SQLite.Lib.Entities.Caches
                 entry.AbsoluteExpiration = options.AbsoluteExpiration;
                 entry.SlidingExpiration = options.SlidingExpiration;
                 entry.Tags = options.Tags;
-                entry.ExpirationTime = options.AbsoluteExpiration;
             }
 
             return entry;
@@ -143,12 +167,6 @@ namespace SQLite.Lib.Entities.Caches
                 }
             }
 
-            // Check IEntity expiration time
-            if (this.ExpirationTime.HasValue && now > this.ExpirationTime.Value)
-            {
-                return true;
-            }
-
             return false;
         }
 
@@ -162,5 +180,6 @@ namespace SQLite.Lib.Entities.Caches
                 this.LastWriteTime = DateTimeOffset.UtcNow;
             }
         }
+
     }
 }

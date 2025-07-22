@@ -26,7 +26,19 @@ namespace SQLite.Lib.Mappings
         public SqlDbType? SqlType { get; set; }
 
         /// <summary>
+        /// Gets or sets the SQLite data type.
+        /// </summary>
+        public SQLiteDbType? SQLiteType { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether the column allows NULL values.
+        /// Default is false (allows NULL).
+        /// </summary>
+        public bool NotNull { get; set; } = false;
+
+        /// <summary>
         /// Gets or sets the size/length of the column. -1 indicates MAX.
+        /// Note: Size is not used in SQLite, but kept for compatibility with other databases.
         /// </summary>
         public int Size { get; set; } = 0;
 
@@ -40,10 +52,6 @@ namespace SQLite.Lib.Mappings
         /// </summary>
         public int Scale { get; set; } = 0;
 
-        /// <summary>
-        /// Gets or sets whether the column allows NULL values.
-        /// </summary>
-        public bool IsNullable { get; set; } = true;
 
         /// <summary>
         /// Gets or sets the default value for the column.
@@ -72,6 +80,11 @@ namespace SQLite.Lib.Mappings
         public ColumnAttribute(string name, SqlDbType sqlType) : this(name)
         {
             this.SqlType = sqlType;
+        }
+
+        public ColumnAttribute(string name, SQLiteDbType sqliteType) : this(name)
+        {
+            this.SQLiteType = sqliteType;
         }
     }
 }

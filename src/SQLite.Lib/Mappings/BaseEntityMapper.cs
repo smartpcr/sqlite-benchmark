@@ -173,6 +173,7 @@ namespace SQLite.Lib.Mappings
         {
             var properties = this.entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
             var indexGroups = new Dictionary<string, List<IndexColumn>>();
+            var foreignKeyGroups = new Dictionary<string, List<(PropertyInfo Property, ForeignKeyAttribute Attribute, string ColumnName)>>();
 
             foreach (var property in properties)
             {
@@ -231,14 +232,63 @@ namespace SQLite.Lib.Mappings
                 var fkAttr = property.GetCustomAttribute<ForeignKeyAttribute>();
                 if (fkAttr != null)
                 {
+                    var constraintName = fkAttr.Name ?? $"FK_{this.tableName}_{property.Name}";
+                    
+                    if (!foreignKeyGroups.ContainsKey(constraintName))
+                    {
+                        foreignKeyGroups[constraintName] = new List<(PropertyInfo, ForeignKeyAttribute, string)>();
+                    }
+                    
+                    foreignKeyGroups[constraintName].Add((property, fkAttr, mapping.ColumnName));
+                }
+            }
+            
+            // Build foreign key definitions from grouped columns
+            foreach (var fkGroup in foreignKeyGroups)
+            {
+                var orderedItems = fkGroup.Value.OrderBy(x => x.Attribute.Ordinal).ToList();
+                var firstAttr = orderedItems.First().Attribute;
+                
+                if (orderedItems.Count > 1)
+                {
+                    // Composite foreign key - validate all attributes have same table and actions
+                    var allSameTable = orderedItems.All(x => x.Attribute.ReferencedTable == firstAttr.ReferencedTable);
+                    var allSameDelete = orderedItems.All(x => x.Attribute.OnDelete == firstAttr.OnDelete);
+                    var allSameUpdate = orderedItems.All(x => x.Attribute.OnUpdate == firstAttr.OnUpdate);
+                    
+                    if (!allSameTable || !allSameDelete || !allSameUpdate)
+                    {
+                        throw new InvalidOperationException(
+                            $"Composite foreign key '{fkGroup.Key}' has inconsistent attributes. " +
+                            "All properties must reference the same table and have the same ON DELETE/UPDATE actions.");
+                    }
+                    
+                    // Build arrays of columns and referenced columns in ordinal order
+                    var columns = orderedItems.Select(x => x.ColumnName).ToArray();
+                    var referencedColumns = orderedItems.Select(x => x.Attribute.ReferencedColumn).ToArray();
+                    
                     this.foreignKeys.Add(new ForeignKeyDefinition
                     {
-                        ConstraintName = fkAttr.Name ?? $"FK_{this.tableName}_{property.Name}",
-                        ColumnName = mapping.ColumnName,
-                        ReferencedTable = fkAttr.ReferencedTable,
-                        ReferencedColumn = fkAttr.ReferencedColumn ?? "Id",
-                        OnDelete = fkAttr.OnDelete,
-                        OnUpdate = fkAttr.OnUpdate
+                        ConstraintName = fkGroup.Key,
+                        ColumnNames = columns,
+                        ReferencedTable = firstAttr.ReferencedTable,
+                        ReferencedColumns = referencedColumns,
+                        OnDelete = firstAttr.OnDelete,
+                        OnUpdate = firstAttr.OnUpdate
+                    });
+                }
+                else
+                {
+                    // Single column foreign key
+                    var item = orderedItems.First();
+                    this.foreignKeys.Add(new ForeignKeyDefinition
+                    {
+                        ConstraintName = fkGroup.Key,
+                        ColumnName = item.ColumnName,
+                        ReferencedTable = item.Attribute.ReferencedTable,
+                        ReferencedColumn = item.Attribute.ReferencedColumn,
+                        OnDelete = item.Attribute.OnDelete,
+                        OnUpdate = item.Attribute.OnUpdate
                     });
                 }
             }
@@ -280,7 +330,12 @@ namespace SQLite.Lib.Mappings
             mapping.ColumnName = columnAttr?.Name ?? property.Name;
 
             // Data type
-            if (columnAttr?.SqlType != null)
+            if (columnAttr?.SQLiteType != null)
+            {
+                mapping.SQLiteType = columnAttr.SQLiteType.Value;
+                mapping.Size = columnAttr.Size;
+            }
+            else if (columnAttr?.SqlType != null)
             {
                 mapping.SqlType = columnAttr.SqlType.Value;
                 mapping.Size = columnAttr.Size;
@@ -293,8 +348,8 @@ namespace SQLite.Lib.Mappings
                 this.InferSqlType(property.PropertyType, mapping);
             }
 
-            // Nullability
-            mapping.IsNullable = columnAttr?.IsNullable ?? this.IsNullableType(property.PropertyType);
+            // Nullability - Use NotNull property (inverted logic)
+            mapping.IsNullable = columnAttr != null ? !columnAttr.NotNull : this.IsNullableType(property.PropertyType);
 
             // Default value
             mapping.DefaultValue = columnAttr?.DefaultValue;
@@ -483,6 +538,27 @@ namespace SQLite.Lib.Mappings
 
         private string GetSqlTypeString(PropertyMapping mapping)
         {
+            // If SQLiteType is specified, use it directly
+            if (mapping.SQLiteType.HasValue)
+            {
+                switch (mapping.SQLiteType.Value)
+                {
+                    case SQLiteDbType.Integer:
+                        return "INTEGER";
+                    case SQLiteDbType.Real:
+                        return "REAL";
+                    case SQLiteDbType.Text:
+                        return "TEXT";
+                    case SQLiteDbType.Blob:
+                        return "BLOB";
+                    case SQLiteDbType.Numeric:
+                        return "NUMERIC";
+                    default:
+                        return "TEXT";
+                }
+            }
+
+            // Otherwise, convert SqlDbType to SQLite types
             var typeStr = mapping.SqlType.ToString().ToUpper();
 
             // Handle special cases for SQLite
@@ -560,8 +636,20 @@ namespace SQLite.Lib.Mappings
         {
             var sql = new StringBuilder();
             sql.Append($"CONSTRAINT {fk.ConstraintName} ");
-            sql.Append($"FOREIGN KEY ({fk.ColumnName}) ");
-            sql.Append($"REFERENCES {fk.ReferencedTable}({fk.ReferencedColumn})");
+            
+            // Handle composite foreign keys
+            if (fk.IsComposite)
+            {
+                var columns = string.Join(", ", fk.ColumnNames);
+                var referencedColumns = string.Join(", ", fk.ReferencedColumns);
+                sql.Append($"FOREIGN KEY ({columns}) ");
+                sql.Append($"REFERENCES {fk.ReferencedTable}({referencedColumns})");
+            }
+            else
+            {
+                sql.Append($"FOREIGN KEY ({fk.ColumnName}) ");
+                sql.Append($"REFERENCES {fk.ReferencedTable}({fk.ReferencedColumn})");
+            }
 
             if (!string.IsNullOrEmpty(fk.OnDelete))
             {

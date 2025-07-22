@@ -20,6 +20,7 @@ namespace SQLite.Lib.Mappings
         public Type PropertyType { get; set; }
         public string ColumnName { get; set; }
         public SqlDbType SqlType { get; set; }
+        public SQLiteDbType? SQLiteType { get; set; }
         public int? Size { get; set; }
         public int? Precision { get; set; }
         public int? Scale { get; set; }
