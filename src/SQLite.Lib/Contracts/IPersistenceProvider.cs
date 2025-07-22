@@ -71,38 +71,38 @@ namespace SQLite.Lib.Contracts
         /// Creates multiple entities in a single batch operation.
         /// </summary>
         /// <param name="entities">The entities to create</param>
+        /// <param name="listCacheKey">The list cache key to associate all entities with</param>
         /// <param name="callerInfo">Information about the caller for auditing and tracking purposes</param>
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>The created entities with updated tracking fields</returns>
-        Task<IEnumerable<T>> CreateBatchAsync(IEnumerable<T> entities, CallerInfo callerInfo, CancellationToken cancellationToken = default);
+        Task<IEnumerable<T>> CreateBatchAsync(IEnumerable<T> entities, string listCacheKey, CallerInfo callerInfo, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Retrieves multiple entities by their primary keys.
         /// </summary>
-        /// <param name="keys">The primary keys</param>
-        /// <param name="callerInfo">Information about the caller for auditing and tracking purposes</param>
+        /// <param name="listCacheKey">The list cache key to associate all entities with</param>
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>The found entities</returns>
-        Task<IEnumerable<T>> GetBatchAsync(IEnumerable<TKey> keys, CallerInfo callerInfo, CancellationToken cancellationToken = default);
+        Task<IEnumerable<T>> GetBatchAsync(string listCacheKey, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Updates multiple entities in a single batch operation.
         /// </summary>
         /// <param name="entities">The entities to update</param>
+        /// <param name="listCacheKey">The list cache key to associate all entities with</param>
         /// <param name="callerInfo">Information about the caller for auditing and tracking purposes</param>
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>The updated entities</returns>
-        Task<IEnumerable<T>> UpdateBatchAsync(IEnumerable<T> entities, CallerInfo callerInfo, CancellationToken cancellationToken = default);
+        Task<IEnumerable<T>> UpdateBatchAsync(IEnumerable<T> entities, string listCacheKey, CallerInfo callerInfo, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Deletes multiple entities by their primary keys.
         /// </summary>
-        /// <param name="keys">The primary keys</param>
+        /// <param name="listCacheKey">The list cache key to associate all entities with</param>
         /// <param name="callerInfo">Information about the caller for auditing and tracking purposes</param>
-        /// <param name="hardDelete">If true, permanently removes the entities</param>
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>The number of entities deleted</returns>
-        Task<int> DeleteBatchAsync(IEnumerable<TKey> keys, CallerInfo callerInfo, bool hardDelete = false, CancellationToken cancellationToken = default);
+        Task<int> DeleteBatchAsync(string listCacheKey, CallerInfo callerInfo, CancellationToken cancellationToken = default);
 
         #endregion
 

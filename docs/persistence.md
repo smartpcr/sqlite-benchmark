@@ -660,6 +660,20 @@ erDiagram
     CacheEntry }o--|| CacheEntity : "typed by"
     CacheStatistics }o--|| CacheEntity : "aggregates by type"
     CacheMetadata }o--|| CacheEntry : "extracts from"
+    
+    EntryListMapping {
+        TEXT ListCacheKey PK "NOT NULL"
+        TEXT EntryCacheKey PK "NOT NULL"
+        INTEGER Version FK "NOT NULL"
+        TEXT CreatedTime "NOT NULL DEFAULT datetime('now')"
+        TEXT LastWriteTime "NOT NULL DEFAULT datetime('now')"
+        TEXT CallerFile
+        TEXT CallerMember
+        INTEGER CallerLineNumber
+    }
+    
+    EntryListMapping ||--o{ CacheEntry : "maps list to entries"
+    EntryListMapping }o--|| Version : "uses version from"
 ```
 
 #### Schema Relationships and Version Management
@@ -693,6 +707,14 @@ erDiagram
   - stores current snapshot for each entity type and cachekey
   - do not store deleted entities, only current version
   - when cache key is a hash from query parameters, such as resover context, json is stored as a separate field in the metadata table
+- **EntryListMapping**:
+  - Maps list cache keys (e.g., query results) to individual entry cache keys
+  - Enables efficient retrieval of all entries belonging to a cached list
+  - Supports list invalidation and query result caching
+  - Uses composite primary key (ListCacheKey, EntryCacheKey) for unique mappings
+  - Physical delete only (no soft delete support)
+  - Version field represents the version when the list was created
+  - Individual entries may be updated independently after list creation, so their current versions in the main entity table may differ from the version stored in this mapping
 - **EntityType**:
   - `CacheEntity` table stores metadata about each entity type, its serialization type and store type associated with deployed version.
   - Used for data migration and schema evolution (note: the logic can be complex and should move to separate design doc)

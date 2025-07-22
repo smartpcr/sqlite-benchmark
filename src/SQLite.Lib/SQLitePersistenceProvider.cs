@@ -24,6 +24,7 @@ namespace SQLite.Lib
     {
         private readonly string connectionString;
         private readonly Models.VersionMapper versionMapper;
+        private readonly Models.EntryListMappingMapper entryListMappingMapper;
         private readonly string tableName;
 
         public ISQLiteEntityMapper<T, TKey> Mapper { get; private set; }
@@ -31,11 +32,13 @@ namespace SQLite.Lib
         public SQLitePersistenceProvider(
             string connectionString,
             ISQLiteEntityMapper<T, TKey> mapper,
-            Models.VersionMapper versionMapper)
+            Models.VersionMapper versionMapper,
+            Models.EntryListMappingMapper entryListMappingMapper)
         {
             this.connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
             this.Mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
             this.versionMapper = versionMapper ?? throw new ArgumentNullException(nameof(versionMapper));
+            this.entryListMappingMapper = entryListMappingMapper ?? throw new ArgumentNullException(nameof(entryListMappingMapper));
             this.tableName = this.Mapper.GetTableName();
         }
 
@@ -506,25 +509,241 @@ namespace SQLite.Lib
             }
         }
 
-        public Task<IEnumerable<T>> CreateBatchAsync(IEnumerable<T> entities, CallerInfo callerInfo, CancellationToken cancellationToken = default)
+        #endregion
+
+        #region batch operations
+        public async Task<IEnumerable<T>> CreateBatchAsync(IEnumerable<T> entities, string listCacheKey, CallerInfo callerInfo, CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            var entityList = entities?.ToList() ?? new List<T>();
+            if (!entityList.Any())
+            {
+                return Enumerable.Empty<T>();
+            }
+
+            var results = new List<T>();
+
+            using var connection = new SQLiteConnection(this.connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            using var transaction = connection.BeginTransaction();
+            try
+            {
+                // Get next version for all entities in the batch
+                long version;
+                using (var versionCmd = this.versionMapper.CreateGetNextVersionCommand())
+                {
+                    versionCmd.Connection = connection;
+                    versionCmd.Transaction = transaction;
+                    var versionResult = await versionCmd.ExecuteScalarAsync(cancellationToken);
+                    version = Convert.ToInt64(versionResult);
+                }
+
+                // Use injected EntryListMapping mapper
+
+                // Process each entity
+                foreach (var entity in entityList)
+                {
+                    // Set version for the entity
+                    entity.Version = version;
+
+                    // Insert entity into main table
+                    using (var insertCmd = this.Mapper.CreateCommand(DbOperationType.Insert, entity.Id, entity, null))
+                    {
+                        insertCmd.Connection = connection;
+                        insertCmd.Transaction = transaction;
+                        await insertCmd.ExecuteNonQueryAsync(cancellationToken);
+                    }
+
+                    // Create EntryListMapping record
+                    var listMapping = new Models.EntryListMapping
+                    {
+                        ListCacheKey = listCacheKey,
+                        EntryCacheKey = entity.Id.ToString(),
+                        Version = version,
+                        CreatedTime = DateTimeOffset.UtcNow,
+                        LastWriteTime = DateTimeOffset.UtcNow,
+                        CallerFile = callerInfo?.CallerFilePath,
+                        CallerMember = callerInfo?.CallerMemberName,
+                        CallerLineNumber = callerInfo?.CallerLineNumber
+                    };
+
+                    using (var listMappingCmd = this.entryListMappingMapper.CreateCommand(DbOperationType.Insert, null, listMapping, null))
+                    {
+                        listMappingCmd.Connection = connection;
+                        listMappingCmd.Transaction = transaction;
+                        await listMappingCmd.ExecuteNonQueryAsync(cancellationToken);
+                    }
+
+                    results.Add(entity);
+                }
+
+                transaction.Commit();
+                return results;
+            }
+            catch
+            {
+                transaction.Rollback();
+                throw;
+            }
         }
 
-        public Task<IEnumerable<T>> GetBatchAsync(IEnumerable<TKey> keys, CallerInfo callerInfo, CancellationToken cancellationToken = default)
+        public async Task<IEnumerable<T>> GetBatchAsync(string listCacheKey, CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            var results = new List<T>();
+
+            using var connection = new SQLiteConnection(this.connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            var keysList = new List<TKey>();
+            using (var listCmd = this.entryListMappingMapper.CreateSelectByListKeyCommand(listCacheKey))
+            {
+                listCmd.Connection = connection;
+                using var listReader = await listCmd.ExecuteReaderAsync(cancellationToken);
+                if (await listReader.ReadAsync(cancellationToken))
+                {
+                    var mapping = this.entryListMappingMapper.MapFromReader(listReader);
+                    if (mapping != null)
+                    {
+                        var key = this.Mapper.DeserializeKey(mapping.EntryCacheKey);
+                        keysList.Add(key);
+                    }
+                }
+            }
+
+            foreach (var key in keysList)
+            {
+                using var command = this.Mapper.CreateCommand(DbOperationType.Select, key, null, null);
+                command.Connection = connection;
+                using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                if (await reader.ReadAsync(cancellationToken))
+                {
+                    var entity = this.Mapper.MapFromReader(reader);
+                    if (entity != null && !entity.IsDeleted)
+                    {
+                        results.Add(entity);
+                    }
+                }
+            }
+
+            return results;
         }
 
-        public Task<IEnumerable<T>> UpdateBatchAsync(IEnumerable<T> entities, CallerInfo callerInfo, CancellationToken cancellationToken = default)
+        public async Task<IEnumerable<T>> UpdateBatchAsync(IEnumerable<T> entities, string listCacheKey, CallerInfo callerInfo, CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            var entityList = entities?.ToList() ?? new List<T>();
+            if (!entityList.Any())
+            {
+                return Enumerable.Empty<T>();
+            }
+
+            var results = new List<T>();
+
+            using var connection = new SQLiteConnection(this.connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            using var transaction = connection.BeginTransaction();
+            try
+            {
+                // Get next version for all entities in the batch
+                long newVersion;
+                using (var versionCmd = this.versionMapper.CreateGetNextVersionCommand())
+                {
+                    versionCmd.Connection = connection;
+                    versionCmd.Transaction = transaction;
+                    var versionResult = await versionCmd.ExecuteScalarAsync(cancellationToken);
+                    newVersion = Convert.ToInt64(versionResult);
+                }
+
+                // Use injected EntryListMapping mapper
+
+                // First, delete existing list mappings
+                using (var deleteListCmd = this.entryListMappingMapper.CreateDeleteByListKeyCommand(listCacheKey))
+                {
+                    deleteListCmd.Connection = connection;
+                    deleteListCmd.Transaction = transaction;
+                    await deleteListCmd.ExecuteNonQueryAsync(cancellationToken);
+                }
+
+                // Process each entity
+                foreach (var entity in entityList)
+                {
+                    // There is no need to check current entity since we always create a new version
+                    entity.Version = newVersion;
+
+                    // Insert new version
+                    using (var insertCmd = this.Mapper.CreateCommand(DbOperationType.Insert, entity.Id, entity, null))
+                    {
+                        insertCmd.Connection = connection;
+                        insertCmd.Transaction = transaction;
+                        await insertCmd.ExecuteNonQueryAsync(cancellationToken);
+                    }
+
+                    // Create new EntryListMapping record
+                    var listMapping = new Models.EntryListMapping
+                    {
+                        ListCacheKey = listCacheKey,
+                        EntryCacheKey = entity.Id.ToString(),
+                        Version = newVersion,
+                        CreatedTime = DateTimeOffset.UtcNow,
+                        LastWriteTime = DateTimeOffset.UtcNow,
+                        CallerFile = callerInfo?.CallerFilePath,
+                        CallerMember = callerInfo?.CallerMemberName,
+                        CallerLineNumber = callerInfo?.CallerLineNumber
+                    };
+
+                    using (var listMappingCmd = this.entryListMappingMapper.CreateCommand(DbOperationType.Insert, null, listMapping, null))
+                    {
+                        listMappingCmd.Connection = connection;
+                        listMappingCmd.Transaction = transaction;
+                        await listMappingCmd.ExecuteNonQueryAsync(cancellationToken);
+                    }
+
+                    results.Add(entity);
+                }
+
+                transaction.Commit();
+                return results;
+            }
+            catch
+            {
+                transaction.Rollback();
+                throw;
+            }
         }
 
-        public Task<int> DeleteBatchAsync(IEnumerable<TKey> keys, CallerInfo callerInfo, bool hardDelete = false, CancellationToken cancellationToken = default)
+        public async Task<int> DeleteBatchAsync(string listCacheKey, CallerInfo callerInfo, CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            var deletedCount = 0;
+
+            using var connection = new SQLiteConnection(this.connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            using var transaction = connection.BeginTransaction();
+            try
+            {
+                // Use injected EntryListMapping mapper
+
+                // Delete existing list mappings
+                using (var deleteListCmd = this.entryListMappingMapper.CreateDeleteByListKeyCommand(listCacheKey))
+                {
+                    deleteListCmd.Connection = connection;
+                    deleteListCmd.Transaction = transaction;
+                    await deleteListCmd.ExecuteNonQueryAsync(cancellationToken);
+                }
+
+                transaction.Commit();
+                return deletedCount;
+            }
+            catch
+            {
+                transaction.Rollback();
+                throw;
+            }
         }
+
+        #endregion
+
+        #region Query operations
 
         public Task<IEnumerable<T>> QueryAsync(Expression<Func<T, bool>> predicate, CallerInfo callerInfo, CancellationToken cancellationToken = default)
         {
@@ -546,6 +765,10 @@ namespace SQLite.Lib
             throw new NotImplementedException();
         }
 
+        #endregion
+
+        #region Bulk operations
+
         public Task<BulkImportResult> BulkImportAsync(IEnumerable<T> entities, BulkImportOptions options = null, IProgress<BulkOperationProgress> progress = null, CancellationToken cancellationToken = default)
         {
             throw new NotImplementedException();
@@ -555,6 +778,8 @@ namespace SQLite.Lib
         {
             throw new NotImplementedException();
         }
+
+        #endregion
 
         public ITransactionScope<T, TKey> BeginTransaction(CancellationToken cancellationToken = default)
         {
@@ -595,7 +820,6 @@ namespace SQLite.Lib
             }
         }
 
-        #endregion
 
         #region Command Creation Operations
 

@@ -193,6 +193,22 @@ CREATE TABLE IF NOT EXISTS CacheMetadata (
 );
 ```
 
+### EntryListMapping Table
+```sql
+CREATE TABLE IF NOT EXISTS EntryListMapping (
+    ListCacheKey TEXT NOT NULL,
+    EntryCacheKey TEXT NOT NULL,
+    Version INTEGER NOT NULL,
+    CreatedTime TEXT NOT NULL DEFAULT (datetime('now')),
+    LastWriteTime TEXT NOT NULL DEFAULT (datetime('now')),
+    CallerFile TEXT,
+    CallerMember TEXT,
+    CallerLineNumber INTEGER,
+    PRIMARY KEY (ListCacheKey, EntryCacheKey),
+    CONSTRAINT FK_EntryListMapping_Version FOREIGN KEY (Version) REFERENCES Version(Version) ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+```
+
 ## A.4 Performance Indexes
 
 ```sql
@@ -218,6 +234,8 @@ CREATE INDEX IF NOT EXISTS IX_UpdateRunEntity_Name ON UpdateRunEntity(Name);
 CREATE INDEX IF NOT EXISTS IX_UpdateRunEntity_TimeStarted ON UpdateRunEntity(TimeStarted);
 CREATE INDEX IF NOT EXISTS IX_UpdateRunEntity_State ON UpdateRunEntity(State);
 CREATE INDEX IF NOT EXISTS IX_UpdateRunEntity_UpdateName ON UpdateRunEntity(UpdateName);
+CREATE INDEX IF NOT EXISTS IX_EntryListMapping_ListCacheKey ON EntryListMapping(ListCacheKey);
+CREATE INDEX IF NOT EXISTS IX_EntryListMapping_EntryCacheKey ON EntryListMapping(EntryCacheKey);
 ```
 
 ## A.5 CacheEntry<T> Storage Details
@@ -292,3 +310,57 @@ LIMIT 1;
 -- The application code should check the IsDeleted flag after retrieval
 -- to determine if the entry exists or has been deleted.
 ```
+
+## A.6 EntryListMapping Table Details
+
+The `EntryListMapping` table maintains relationships between list cache keys and individual entry cache keys. This table is crucial for:
+
+1. **List-to-Entry Mapping**: Maps a list query result (e.g., "all-updates") to individual cache entries
+2. **Efficient List Retrieval**: Allows retrieving all entries belonging to a list without scanning the entire cache
+3. **List Invalidation**: When a list cache key expires, all associated entries can be identified
+4. **Query Result Caching**: Stores relationships between query-based cache keys and result entries
+
+### Usage Pattern
+
+```sql
+-- Example: Mapping a list query to individual entries
+INSERT INTO EntryListMapping (
+    ListCacheKey,     -- e.g., "updates-query-hash-12345"
+    EntryCacheKey,    -- e.g., "update-entity-001"
+    Version,          -- from global Version sequence
+    CreatedTime,      -- timestamp of mapping creation
+    LastWriteTime,    -- timestamp of last update
+    CallerFile,       -- e.g., "UpdateService.cs"
+    CallerMember,     -- e.g., "GetBatchAsync"
+    CallerLineNumber  -- e.g., 142
+) VALUES (
+    @listCacheKey,
+    @entryCacheKey,
+    @version,
+    datetime('now'),
+    datetime('now'),
+    @callerFile,
+    @callerMember,
+    @callerLineNumber
+);
+
+-- Retrieve all entries for a list
+SELECT elm.EntryCacheKey, ce.* 
+FROM EntryListMapping elm
+INNER JOIN CacheEntry ce ON elm.EntryCacheKey = ce.CacheKey
+WHERE elm.ListCacheKey = 'updates-query-hash-12345'
+  AND ce.IsDeleted = 0
+ORDER BY elm.EntryCacheKey;
+
+-- Delete all mappings when a list expires
+DELETE FROM EntryListMapping 
+WHERE ListCacheKey = 'updates-query-hash-12345';
+```
+
+### Key Characteristics
+
+- **Composite Primary Key**: (ListCacheKey, EntryCacheKey) ensures unique mappings
+- **No Soft Delete**: This table doesn't support soft delete - entries are physically removed
+- **Version Tracking**: Each mapping has a version for audit purposes
+- **Indexed Columns**: Both ListCacheKey and EntryCacheKey have indexes for performance
+- **Caller Information**: Tracks CallerFile, CallerMember, and CallerLineNumber for debugging and auditing

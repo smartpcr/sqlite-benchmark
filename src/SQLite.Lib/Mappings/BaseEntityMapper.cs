@@ -11,6 +11,7 @@ namespace SQLite.Lib.Mappings
     using System.Data;
     using System.Data.SQLite;
     using System.Linq;
+    using System.Linq.Expressions;
     using System.Reflection;
     using System.Text;
     using SQLite.Lib.Contracts;
@@ -191,6 +192,11 @@ namespace SQLite.Lib.Mappings
             }
 
             return indexSql;
+        }
+
+        public string GenerateWhereClause(Expression<Func<T, bool>> predicate)
+        {
+            throw new NotImplementedException();
         }
 
         #endregion
