@@ -4,15 +4,14 @@
 // </copyright>
 // -----------------------------------------------------------------------
 
-namespace SQLite.Lib.Entities.Caches
+namespace SQLite.Lib.Models
 {
     using System;
-    using System.Data;
     using System.Runtime.Serialization;
     using Newtonsoft.Json;
     using SQLite.Lib.Contracts;
+    using SQLite.Lib.Entities;
     using SQLite.Lib.Mappings;
-    using SQLite.Lib.Models;
 
     /// <summary>
     /// Generic wrapper for cache entries that provides type-safe storage and retrieval

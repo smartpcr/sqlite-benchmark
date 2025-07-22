@@ -4,7 +4,7 @@
 // </copyright>
 // -----------------------------------------------------------------------
 
-namespace SQLite.Lib.Entities.Caches
+namespace SQLite.Lib.Models
 {
     /// <summary>
     /// Cache item priority for eviction policies.

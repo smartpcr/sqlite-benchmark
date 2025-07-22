@@ -12,7 +12,8 @@ namespace SQLite.Lib
     using System.Threading;
     using System.Threading.Tasks;
     using SQLite.Lib.Contracts;
-    using SQLite.Lib.Entities.Caches;
+    using SQLite.Lib.Mappings;
+    using SQLite.Lib.Models;
 
     /// <summary>
     /// SQLite implementation of a cache provider that stores CacheEntry&lt;T&gt; objects.
@@ -36,7 +37,7 @@ namespace SQLite.Lib
             this.defaultExpiration = defaultExpiration ?? TimeSpan.FromHours(1);
 
             // Create mapper and persistence provider
-            this.mapper = new CacheEntryMapper<T>(null, tableName);
+            this.mapper = new CacheEntryMapper<T>();
             this.persistenceProvider = new SQLitePersistenceProvider<CacheEntry<T>, string>(
                 connectionString,
                 this.mapper);
@@ -63,7 +64,7 @@ namespace SQLite.Lib
                 return null;
 
             // Check expiration
-            if (entry.ExpirationTime.HasValue && entry.ExpirationTime.Value < DateTimeOffset.UtcNow)
+            if (entry.AbsoluteExpiration.HasValue && entry.AbsoluteExpiration.Value < DateTimeOffset.UtcNow)
             {
                 // Entry has expired, soft delete it
                 await this.persistenceProvider.DeleteAsync(key, callerInfo, false, cancellationToken);
@@ -74,8 +75,7 @@ namespace SQLite.Lib
             if (entry.SlidingExpiration.HasValue)
             {
                 entry.RefreshExpiration();
-                entry.ExpirationTime = DateTimeOffset.UtcNow.Add(entry.SlidingExpiration.Value);
-                entry.AbsoluteExpiration = entry.ExpirationTime;
+                entry.AbsoluteExpiration = DateTimeOffset.UtcNow.Add(entry.SlidingExpiration.Value);
             }
 
             await this.persistenceProvider.UpdateAsync(entry, callerInfo, cancellationToken);
@@ -115,9 +115,7 @@ namespace SQLite.Lib
                 // Update existing entry
                 existingEntry.Value = value;
                 existingEntry.TypeName = typeof(T).Name;
-                existingEntry.AssemblyQualifiedName = typeof(T).AssemblyQualifiedName;
-                existingEntry.Size = EstimateSize(value);
-                existingEntry.ExpirationTime = expirationTime;
+                existingEntry.Size = this.EstimateSize(value);
                 existingEntry.AbsoluteExpiration = expirationTime;
                 existingEntry.LastWriteTime = DateTimeOffset.UtcNow;
 
@@ -131,9 +129,7 @@ namespace SQLite.Lib
                     Id = key,
                     Value = value,
                     TypeName = typeof(T).Name,
-                    AssemblyQualifiedName = typeof(T).AssemblyQualifiedName,
-                    Size = EstimateSize(value),
-                    ExpirationTime = expirationTime,
+                    Size = this.EstimateSize(value),
                     AbsoluteExpiration = expirationTime,
                     Tags = new string[0],
                     CreatedTime = DateTimeOffset.UtcNow,
@@ -182,10 +178,8 @@ namespace SQLite.Lib
                 // Update existing entry
                 existingEntry.Value = value;
                 existingEntry.TypeName = typeof(T).Name;
-                existingEntry.AssemblyQualifiedName = typeof(T).AssemblyQualifiedName;
-                existingEntry.Size = EstimateSize(value);
+                existingEntry.Size = this.EstimateSize(value);
                 existingEntry.SlidingExpiration = slidingExpiration;
-                existingEntry.ExpirationTime = expirationTime;
                 existingEntry.AbsoluteExpiration = absoluteExpirationTime ?? expirationTime;
                 existingEntry.LastWriteTime = now;
 
@@ -199,10 +193,8 @@ namespace SQLite.Lib
                     Id = key,
                     Value = value,
                     TypeName = typeof(T).Name,
-                    AssemblyQualifiedName = typeof(T).AssemblyQualifiedName,
-                    Size = EstimateSize(value),
+                    Size = this.EstimateSize(value),
                     SlidingExpiration = slidingExpiration,
-                    ExpirationTime = expirationTime,
                     AbsoluteExpiration = absoluteExpirationTime ?? expirationTime,
                     Tags = new string[0],
                     CreatedTime = now,
@@ -255,7 +247,7 @@ namespace SQLite.Lib
                 return false;
 
             // Check expiration
-            if (entry.ExpirationTime.HasValue && entry.ExpirationTime.Value < DateTimeOffset.UtcNow)
+            if (entry.AbsoluteExpiration.HasValue && entry.AbsoluteExpiration.Value < DateTimeOffset.UtcNow)
             {
                 // Entry has expired
                 return false;
@@ -393,7 +385,7 @@ namespace SQLite.Lib
             {
                 // Use the mapper's serialization to estimate size
                 var tempEntry = new CacheEntry<T> { Value = value };
-                var serialized = this.mapper.SerializeCacheEntry(tempEntry);
+                var serialized = this.mapper.SerializeEntity(tempEntry);
                 return serialized?.Length ?? 0;
             }
             catch

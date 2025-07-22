@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <Folder Include="Abstractions\" />
+    <Folder Include="Entities\Caches\" />
   </ItemGroup>
 
 </Project>

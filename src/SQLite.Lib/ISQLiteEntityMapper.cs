@@ -26,6 +26,7 @@ namespace SQLite.Lib
         List<string> GetUpdateColumns();
         void AddParameters(SQLiteCommand command, T entity);
         T MapFromReader(IDataReader reader);
+        byte[] SerializeEntity(T entity);
         string SerializeKey(TKey key);
         TKey DeserializeKey(string serialized);
     }

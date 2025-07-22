@@ -25,17 +25,14 @@ namespace SQLite.Lib
     {
         private readonly string connectionString;
         private readonly ISQLiteEntityMapper<T, TKey> mapper;
-        private readonly ISerializer<T> serializer;
         private readonly string tableName;
 
         public SQLitePersistenceProvider(
             string connectionString,
-            ISQLiteEntityMapper<T, TKey> mapper,
-            ISerializer<T> serializer = null)
+            ISQLiteEntityMapper<T, TKey> mapper)
         {
             this.connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
             this.mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
-            this.serializer = serializer ?? SerializerResolver.GetSerializer<T>();
             this.tableName = this.mapper.GetTableName();
         }
 
@@ -586,7 +583,7 @@ namespace SQLite.Lib
 
             try
             {
-                var serialized = this.serializer.Serialize(entity);
+                var serialized = this.mapper.SerializeEntity(entity);
                 return serialized?.Length ?? 0;
             }
             catch

@@ -7,12 +7,10 @@
 namespace SQLite.Lib.Entities
 {
     using System;
-    using System.Data;
     using System.Runtime.Serialization;
     using Newtonsoft.Json;
     using SQLite.Lib.Contracts;
     using SQLite.Lib.Mappings;
-    using SQLite.Lib.Models;
 
     public abstract class BaseEntity<TKey> : IEntity<TKey> where TKey : IEquatable<TKey>
     {

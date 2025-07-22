@@ -14,13 +14,14 @@ namespace SQLite.Lib.Mappings
     using System.Reflection;
     using System.Text;
     using SQLite.Lib.Contracts;
+    using SQLite.Lib.Serialization;
 
     /// <summary>
     /// Base mapper that uses reflection and attributes to create mappings between C# properties and database columns.
     /// </summary>
     /// <typeparam name="T">The entity type to map</typeparam>
     /// <typeparam name="TKey">The key type.</typeparam>
-    public class BaseEntityMapper<T, TKey> : ISQLiteEntityMapper<T, TKey> where T : IEntity<TKey> where TKey : IEquatable<TKey>
+    public class BaseEntityMapper<T, TKey> : ISQLiteEntityMapper<T, TKey> where T : class, IEntity<TKey> where TKey : IEquatable<TKey>
     {
         private readonly Type entityType;
         private readonly string tableName;
@@ -31,6 +32,7 @@ namespace SQLite.Lib.Mappings
         private PropertyInfo primaryKeyProperty;
         private bool hasCompositeKey;
         private readonly List<PropertyInfo> compositeKeyProperties;
+        private readonly ISerializer<T> serializer;
 
         public BaseEntityMapper()
         {
@@ -44,6 +46,7 @@ namespace SQLite.Lib.Mappings
             var tableAttr = this.entityType.GetCustomAttribute<TableAttribute>();
             this.tableName = tableAttr?.Name ?? this.entityType.Name;
             this.schemaName = tableAttr?.Schema ?? "dbo";
+            this.serializer = SerializerResolver.GetSerializer<T>();
 
             // Build property mappings
             this.BuildPropertyMappings();
@@ -233,40 +236,40 @@ namespace SQLite.Lib.Mappings
                 if (fkAttr != null)
                 {
                     var constraintName = fkAttr.Name ?? $"FK_{this.tableName}_{property.Name}";
-                    
+
                     if (!foreignKeyGroups.ContainsKey(constraintName))
                     {
                         foreignKeyGroups[constraintName] = new List<(PropertyInfo, ForeignKeyAttribute, string)>();
                     }
-                    
+
                     foreignKeyGroups[constraintName].Add((property, fkAttr, mapping.ColumnName));
                 }
             }
-            
+
             // Build foreign key definitions from grouped columns
             foreach (var fkGroup in foreignKeyGroups)
             {
                 var orderedItems = fkGroup.Value.OrderBy(x => x.Attribute.Ordinal).ToList();
                 var firstAttr = orderedItems.First().Attribute;
-                
+
                 if (orderedItems.Count > 1)
                 {
                     // Composite foreign key - validate all attributes have same table and actions
                     var allSameTable = orderedItems.All(x => x.Attribute.ReferencedTable == firstAttr.ReferencedTable);
                     var allSameDelete = orderedItems.All(x => x.Attribute.OnDelete == firstAttr.OnDelete);
                     var allSameUpdate = orderedItems.All(x => x.Attribute.OnUpdate == firstAttr.OnUpdate);
-                    
+
                     if (!allSameTable || !allSameDelete || !allSameUpdate)
                     {
                         throw new InvalidOperationException(
                             $"Composite foreign key '{fkGroup.Key}' has inconsistent attributes. " +
                             "All properties must reference the same table and have the same ON DELETE/UPDATE actions.");
                     }
-                    
+
                     // Build arrays of columns and referenced columns in ordinal order
                     var columns = orderedItems.Select(x => x.ColumnName).ToArray();
                     var referencedColumns = orderedItems.Select(x => x.Attribute.ReferencedColumn).ToArray();
-                    
+
                     this.foreignKeys.Add(new ForeignKeyDefinition
                     {
                         ConstraintName = fkGroup.Key,
@@ -636,7 +639,7 @@ namespace SQLite.Lib.Mappings
         {
             var sql = new StringBuilder();
             sql.Append($"CONSTRAINT {fk.ConstraintName} ");
-            
+
             // Handle composite foreign keys
             if (fk.IsComposite)
             {
@@ -765,6 +768,11 @@ namespace SQLite.Lib.Mappings
             this.SetRemainingProperties(entity, propertyValues);
 
             return entity;
+        }
+
+        public byte[] SerializeEntity(T entity)
+        {
+            return this.serializer.Serialize(entity);
         }
 
         /// <summary>

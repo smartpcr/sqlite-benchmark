@@ -41,11 +41,6 @@ namespace SQLite.Lib.Contracts
         /// </summary>
         bool IsDeleted { get; set; }
 
-        /// <summary>
-        /// Gets or sets the expiration time for the entity (null for no expiration).
-        /// </summary>
-        DateTimeOffset? ExpirationTime { get; set; }
-
         long EstimateEntitySize();
     }
 }

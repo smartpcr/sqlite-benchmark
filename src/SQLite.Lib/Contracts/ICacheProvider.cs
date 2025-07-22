@@ -10,7 +10,7 @@ namespace SQLite.Lib.Contracts
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
-    using SQLite.Lib.Entities.Caches;
+    using SQLite.Lib.Models;
 
     /// <summary>
     /// Defines the contract for a cache provider that stores key-value pairs with expiration support.

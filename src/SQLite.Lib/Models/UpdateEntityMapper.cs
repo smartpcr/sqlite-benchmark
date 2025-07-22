@@ -11,12 +11,20 @@ namespace SQLite.Lib.Models
     using System.Data;
     using System.Data.SQLite;
     using Newtonsoft.Json;
+    using SQLite.Lib.Serialization;
 
     /// <summary>
     /// Example mapper for UpdateEntity showing SQL generation.
     /// </summary>
     public class UpdateEntityMapper : ISQLiteEntityMapper<UpdateEntity, string>
     {
+        private ISerializer<UpdateEntity> serializer;
+
+        public UpdateEntityMapper()
+        {
+            this.serializer = new JsonSerializer<UpdateEntity>();
+        }
+
         public string GetTableName() => "Updates";
 
         public string GetPrimaryKeyColumn() => "UpdateId";
@@ -64,8 +72,6 @@ namespace SQLite.Lib.Models
             command.Parameters.AddWithValue("@LastWriteTime", entity.LastWriteTime.ToUnixTimeSeconds());
             command.Parameters.AddWithValue("@Version", entity.Version);
             command.Parameters.AddWithValue("@IsDeleted", entity.IsDeleted ? 1 : 0);
-            command.Parameters.AddWithValue("@ExpirationTime",
-                entity.ExpirationTime?.ToUnixTimeSeconds() ?? (object)DBNull.Value);
         }
 
         public UpdateEntity MapFromReader(IDataReader reader)
@@ -96,10 +102,12 @@ namespace SQLite.Lib.Models
                     reader.GetInt64(reader.GetOrdinal("LastWriteTime"))),
                 Version = reader.GetInt64(reader.GetOrdinal("EntityVersion")),
                 IsDeleted = reader.GetInt32(reader.GetOrdinal("IsDeleted")) == 1,
-                ExpirationTime = reader.IsDBNull(reader.GetOrdinal("ExpirationTime"))
-                    ? null : DateTimeOffset.FromUnixTimeSeconds(
-                        reader.GetInt64(reader.GetOrdinal("ExpirationTime")))
             };
+        }
+
+        public byte[] SerializeEntity(UpdateEntity entity)
+        {
+            return this.serializer.Serialize(entity);
         }
 
         public string SerializeKey(string key) => key;

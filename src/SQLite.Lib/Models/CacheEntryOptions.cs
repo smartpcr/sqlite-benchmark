@@ -4,7 +4,7 @@
 // </copyright>
 // -----------------------------------------------------------------------
 
-namespace SQLite.Lib.Entities.Caches
+namespace SQLite.Lib.Models
 {
     using System;
 
