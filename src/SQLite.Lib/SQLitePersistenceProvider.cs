@@ -9,11 +9,13 @@ namespace SQLite.Lib
     using System;
     using System.Collections.Generic;
     using System.Data.SQLite;
+    using System.Diagnostics;
     using System.Linq;
     using System.Linq.Expressions;
     using System.Threading;
     using System.Threading.Tasks;
     using SQLite.Lib.Contracts;
+    using SQLite.Lib.Traces;
 
     /// <summary>
     /// SQLite implementation of IPersistenceProvider that translates CRUD operations to SQL.
@@ -50,89 +52,123 @@ namespace SQLite.Lib
         /// </summary>
         public async Task<T> GetAsync(TKey key, CallerInfo callerInfo, CancellationToken cancellationToken = default)
         {
-            // Translate Get = Func<TKey, T> to SQL
-            // Order by Version DESC to get the latest version first
-            // IMPORTANT: We do NOT filter by IsDeleted = 0 here because:
-            // 1. We need to return the latest version regardless of deletion status
-            // 2. The caller needs to know if an entity was deleted (by checking IsDeleted flag)
-            // 3. Filtering would hide deleted entities and make it impossible to distinguish
-            //    between "never existed" and "was deleted"
-            var sql = $@"
-                SELECT {this.Mapper.GetSelectColumns()}
-                FROM {this.tableName}
-                WHERE {this.Mapper.GetPrimaryKeyColumn()} = @key
-                ORDER BY Version DESC
-                LIMIT 1";
-
-            T result = null;
-
-            using var connection = new SQLiteConnection(this.connectionString);
-            // Always pass cancellation token to OpenAsync for proper cancellation support
-            await connection.OpenAsync(cancellationToken);
-
-            using var command = this.Mapper.CreateCommand(DbOperationType.Select, key, null, null);
-            command.Connection = connection;
-
-            long? version = null;
-
-            using var reader = await command.ExecuteReaderAsync(cancellationToken);
-            if (await reader.ReadAsync(cancellationToken))
+            var stopwatch = Stopwatch.StartNew();
+            var keyString = this.Mapper.SerializeKey(key);
+            
+            Logger.GetStart(keyString, this.tableName);
+            
+            try
             {
-                var foundEntity = this.Mapper.MapFromReader(reader);
+                // Translate Get = Func<TKey, T> to SQL
+                // Order by Version DESC to get the latest version first
+                // IMPORTANT: We do NOT filter by IsDeleted = 0 here because:
+                // 1. We need to return the latest version regardless of deletion status
+                // 2. The caller needs to know if an entity was deleted (by checking IsDeleted flag)
+                // 3. Filtering would hide deleted entities and make it impossible to distinguish
+                //    between "never existed" and "was deleted"
+                var sql = $@"
+                    SELECT {this.Mapper.GetSelectColumns()}
+                    FROM {this.tableName}
+                    WHERE {this.Mapper.GetPrimaryKeyColumn()} = @key
+                    ORDER BY Version DESC
+                    LIMIT 1";
 
-                // Check if the entity is marked as deleted
-                if (foundEntity != null)
+                T result = null;
+
+                using var connection = new SQLiteConnection(this.connectionString);
+                // Always pass cancellation token to OpenAsync for proper cancellation support
+                await connection.OpenAsync(cancellationToken);
+
+                using var command = this.Mapper.CreateCommand(DbOperationType.Select, key, null, null);
+                command.Connection = connection;
+
+                long? version = null;
+
+                using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                if (await reader.ReadAsync(cancellationToken))
                 {
-                    version = foundEntity.Version;
-                    var isDeleted = foundEntity.IsDeleted;
+                    var foundEntity = this.Mapper.MapFromReader(reader);
 
-                    result = isDeleted
-                        ? null
-                        : foundEntity;
+                    // Check if the entity is marked as deleted
+                    if (foundEntity != null)
+                    {
+                        version = foundEntity.Version;
+                        var isDeleted = foundEntity.IsDeleted;
+
+                        result = isDeleted
+                            ? null
+                            : foundEntity;
+                    }
                 }
-            }
+                
+                stopwatch.Stop();
+                
+                if (result == null)
+                {
+                    Logger.GetNotFound(keyString, this.tableName);
+                }
+                else
+                {
+                    Logger.GetStop(keyString, this.tableName, stopwatch);
+                    
+                    if (result != null)
+                    {
+                        Logger.CacheHit(keyString);
+                    }
+                    else
+                    {
+                        Logger.CacheMiss(keyString);
+                    }
+                }
 
-            // Populate CacheAccessHistory for all access attempts
-            if (callerInfo != null)
+                // Populate CacheAccessHistory for all access attempts
+                if (callerInfo != null)
+                {
+                    try
+                    {
+                        var historyInsertSql = @"
+                            INSERT INTO CacheAccessHistory (
+                                CacheKey, TypeName, Operation, CacheHit, Version,
+                                CallerFile, CallerMember, CallerLineNumber, Timestamp
+                            ) VALUES (
+                                @key, @typeName, 'GET', @cacheHit, @version,
+                                @filePath, @memberName, @lineNumber, datetime('now')
+                            )";
+
+                        // Use a separate connection for audit logging to ensure:
+                        // 1. Audit failures don't affect the main operation
+                        // 2. Avoid conflicts with active DataReaders on the main connection
+                        // 3. Maintain consistent pattern with transactional operations where
+                        //    audit logs must be written outside the main transaction
+                        // 4. Allow immediate release of the main connection back to the pool
+                        using var historyConnection = new SQLiteConnection(this.connectionString);
+                        await historyConnection.OpenAsync(cancellationToken);
+
+                        using var historyCommand = new SQLiteCommand(historyInsertSql, historyConnection);
+                        historyCommand.Parameters.AddWithValue("@key", keyString);
+                        historyCommand.Parameters.AddWithValue("@typeName", typeof(T).Name);
+                        historyCommand.Parameters.AddWithValue("@cacheHit", result != null ? 1 : 0);
+                        historyCommand.Parameters.AddWithValue("@version", version ?? (object)DBNull.Value);
+                        historyCommand.Parameters.AddWithValue("@memberName", callerInfo.CallerMemberName ?? (object)DBNull.Value);
+                        historyCommand.Parameters.AddWithValue("@filePath", callerInfo.CallerFilePath ?? (object)DBNull.Value);
+                        historyCommand.Parameters.AddWithValue("@lineNumber", callerInfo.CallerLineNumber);
+
+                        await historyCommand.ExecuteNonQueryAsync(cancellationToken);
+                    }
+                    catch
+                    {
+                        // Log but don't fail the operation if audit fails
+                    }
+                }
+
+                return result;
+            }
+            catch (Exception ex)
             {
-                try
-                {
-                    var historyInsertSql = @"
-                        INSERT INTO CacheAccessHistory (
-                            CacheKey, TypeName, Operation, CacheHit, Version,
-                            CallerFile, CallerMember, CallerLineNumber, Timestamp
-                        ) VALUES (
-                            @key, @typeName, 'GET', @cacheHit, @version,
-                            @filePath, @memberName, @lineNumber, datetime('now')
-                        )";
-
-                    // Use a separate connection for audit logging to ensure:
-                    // 1. Audit failures don't affect the main operation
-                    // 2. Avoid conflicts with active DataReaders on the main connection
-                    // 3. Maintain consistent pattern with transactional operations where
-                    //    audit logs must be written outside the main transaction
-                    // 4. Allow immediate release of the main connection back to the pool
-                    using var historyConnection = new SQLiteConnection(this.connectionString);
-                    await historyConnection.OpenAsync(cancellationToken);
-
-                    using var historyCommand = new SQLiteCommand(historyInsertSql, historyConnection);
-                    historyCommand.Parameters.AddWithValue("@key", this.Mapper.SerializeKey(key));
-                    historyCommand.Parameters.AddWithValue("@typeName", typeof(T).Name);
-                    historyCommand.Parameters.AddWithValue("@cacheHit", result != null ? 1 : 0);
-                    historyCommand.Parameters.AddWithValue("@version", version ?? (object)DBNull.Value);
-                    historyCommand.Parameters.AddWithValue("@memberName", callerInfo.CallerMemberName ?? (object)DBNull.Value);
-                    historyCommand.Parameters.AddWithValue("@filePath", callerInfo.CallerFilePath ?? (object)DBNull.Value);
-                    historyCommand.Parameters.AddWithValue("@lineNumber", callerInfo.CallerLineNumber);
-
-                    await historyCommand.ExecuteNonQueryAsync(cancellationToken);
-                }
-                catch
-                {
-                    // Log but don't fail the operation if audit fails
-                }
+                stopwatch.Stop();
+                Logger.GetFailed(keyString, this.tableName, stopwatch, ex);
+                throw;
             }
-
-            return result;
         }
 
         /// <summary>
@@ -140,14 +176,21 @@ namespace SQLite.Lib
         /// </summary>
         public async Task<T> CreateAsync(T entity, CallerInfo callerInfo, CancellationToken cancellationToken = default)
         {
-            using var connection = new SQLiteConnection(this.connectionString);
-            await connection.OpenAsync(cancellationToken);
-
-            // Note: SQLite transactions use synchronous Commit/Rollback methods
-            // as the underlying SQLite library doesn't provide true async transaction operations
-            using var transaction = connection.BeginTransaction();
+            var stopwatch = Stopwatch.StartNew();
+            var keyString = this.Mapper.SerializeKey(entity.Id);
+            
+            Logger.CreateStart(keyString, this.tableName);
+            
             try
             {
+                using var connection = new SQLiteConnection(this.connectionString);
+                await connection.OpenAsync(cancellationToken);
+
+                // Note: SQLite transactions use synchronous Commit/Rollback methods
+                // as the underlying SQLite library doesn't provide true async transaction operations
+                using var transaction = connection.BeginTransaction();
+                try
+                {
                 // Step 1: Check if entity already exists and is not deleted
                 var checkExistsSql = $@"
                     SELECT {this.Mapper.GetSelectColumns()}
@@ -251,15 +294,34 @@ namespace SQLite.Lib
                         }
                     }
 
+                    stopwatch.Stop();
+                    Logger.CreateStop(keyString, this.tableName, stopwatch);
                     return result;
                 }
 
                 throw new InvalidOperationException("Failed to retrieve created entity");
             }
-            catch
+            catch (EntityAlreadyExistsException)
             {
+                stopwatch.Stop();
+                Logger.CreateFailed(keyString, this.tableName, stopwatch, new InvalidOperationException($"Entity with key '{keyString}' already exists"));
                 // Transaction rollback will undo both Version and entity inserts
                 transaction.Rollback();
+                throw;
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                Logger.CreateFailed(keyString, this.tableName, stopwatch, ex);
+                // Transaction rollback will undo both Version and entity inserts
+                transaction.Rollback();
+                throw;
+            }
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                Logger.CreateFailed(keyString, this.tableName, stopwatch, ex);
                 throw;
             }
         }
@@ -269,15 +331,22 @@ namespace SQLite.Lib
         /// </summary>
         public async Task<T> UpdateAsync(T entity, CallerInfo callerInfo, CancellationToken cancellationToken = default)
         {
-            // Store original version for optimistic concurrency check
-            var originalVersion = entity.Version;
-
-            using var connection = new SQLiteConnection(this.connectionString);
-            await connection.OpenAsync(cancellationToken);
-
-            using var transaction = connection.BeginTransaction();
+            var stopwatch = Stopwatch.StartNew();
+            var keyString = this.Mapper.SerializeKey(entity.Id);
+            
+            Logger.UpdateStart(keyString, this.tableName);
+            
             try
             {
+                // Store original version for optimistic concurrency check
+                var originalVersion = entity.Version;
+
+                using var connection = new SQLiteConnection(this.connectionString);
+                await connection.OpenAsync(cancellationToken);
+
+                using var transaction = connection.BeginTransaction();
+                try
+                {
                 // Step 1: Get the old value for history tracking
                 T oldValue = default(T);
                 if (callerInfo != null)
@@ -379,11 +448,29 @@ namespace SQLite.Lib
                     }
                 }
 
+                stopwatch.Stop();
+                Logger.UpdateStop(keyString, this.tableName, stopwatch);
                 return entity;
             }
-            catch
+            catch (ConcurrencyException)
             {
+                stopwatch.Stop();
+                Logger.UpdateConcurrencyConflict(keyString, this.tableName);
                 transaction.Rollback();
+                throw;
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                Logger.UpdateFailed(keyString, this.tableName, stopwatch, ex);
+                transaction.Rollback();
+                throw;
+            }
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                Logger.UpdateFailed(keyString, this.tableName, stopwatch, ex);
                 throw;
             }
         }
@@ -393,7 +480,14 @@ namespace SQLite.Lib
         /// </summary>
         public async Task<bool> DeleteAsync(TKey key, CallerInfo callerInfo, bool hardDelete = false, CancellationToken cancellationToken = default)
         {
-            string sql;
+            var stopwatch = Stopwatch.StartNew();
+            var keyString = this.Mapper.SerializeKey(key);
+            
+            Logger.DeleteStart(keyString, this.tableName);
+            
+            try
+            {
+                string sql;
 
             if (hardDelete)
             {
@@ -500,11 +594,22 @@ namespace SQLite.Lib
                     }
                 }
 
+                stopwatch.Stop();
+                Logger.DeleteStop(keyString, this.tableName, stopwatch);
                 return rowsAffected > 0;
             }
-            catch
+            catch (Exception ex)
             {
+                stopwatch.Stop();
+                Logger.DeleteFailed(keyString, this.tableName, stopwatch, ex);
                 transaction.Rollback();
+                throw;
+            }
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                Logger.DeleteFailed(keyString, this.tableName, stopwatch, ex);
                 throw;
             }
         }
@@ -520,14 +625,19 @@ namespace SQLite.Lib
                 return Enumerable.Empty<T>();
             }
 
-            var results = new List<T>();
-
-            using var connection = new SQLiteConnection(this.connectionString);
-            await connection.OpenAsync(cancellationToken);
-
-            using var transaction = connection.BeginTransaction();
+            var stopwatch = Stopwatch.StartNew();
+            Logger.BatchOperationStart("CreateBatch", entityList.Count, listCacheKey);
+            
             try
             {
+                var results = new List<T>();
+
+                using var connection = new SQLiteConnection(this.connectionString);
+                await connection.OpenAsync(cancellationToken);
+
+                using var transaction = connection.BeginTransaction();
+                try
+                {
                 // Get next version for all entities in the batch
                 long version;
                 using (var versionCmd = this.versionMapper.CreateGetNextVersionCommand())
@@ -578,21 +688,37 @@ namespace SQLite.Lib
                 }
 
                 transaction.Commit();
+                stopwatch.Stop();
+                Logger.BatchOperationStop("CreateBatch", results.Count, listCacheKey, stopwatch);
                 return results;
             }
-            catch
+            catch (Exception ex)
             {
+                stopwatch.Stop();
+                Logger.BatchOperationFailed("CreateBatch", listCacheKey, stopwatch, ex);
                 transaction.Rollback();
+                throw;
+            }
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                Logger.BatchOperationFailed("CreateBatch", listCacheKey, stopwatch, ex);
                 throw;
             }
         }
 
         public async Task<IEnumerable<T>> GetBatchAsync(string listCacheKey, CancellationToken cancellationToken = default)
         {
-            var results = new List<T>();
+            var stopwatch = Stopwatch.StartNew();
+            Logger.BatchOperationStart("GetBatch", 0, listCacheKey); // Count unknown at start
+            
+            try
+            {
+                var results = new List<T>();
 
-            using var connection = new SQLiteConnection(this.connectionString);
-            await connection.OpenAsync(cancellationToken);
+                using var connection = new SQLiteConnection(this.connectionString);
+                await connection.OpenAsync(cancellationToken);
 
             var keysList = new List<TKey>();
             using (var listCmd = this.entryListMappingMapper.CreateSelectByListKeyCommand(listCacheKey))
@@ -625,7 +751,16 @@ namespace SQLite.Lib
                 }
             }
 
-            return results;
+                stopwatch.Stop();
+                Logger.BatchOperationStop("GetBatch", results.Count, listCacheKey, stopwatch);
+                return results;
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                Logger.BatchOperationFailed("GetBatch", listCacheKey, stopwatch, ex);
+                throw;
+            }
         }
 
         public async Task<IEnumerable<T>> UpdateBatchAsync(IEnumerable<T> entities, string listCacheKey, CallerInfo callerInfo, CancellationToken cancellationToken = default)
@@ -636,14 +771,19 @@ namespace SQLite.Lib
                 return Enumerable.Empty<T>();
             }
 
-            var results = new List<T>();
-
-            using var connection = new SQLiteConnection(this.connectionString);
-            await connection.OpenAsync(cancellationToken);
-
-            using var transaction = connection.BeginTransaction();
+            var stopwatch = Stopwatch.StartNew();
+            Logger.BatchOperationStart("UpdateBatch", entityList.Count, listCacheKey);
+            
             try
             {
+                var results = new List<T>();
+
+                using var connection = new SQLiteConnection(this.connectionString);
+                await connection.OpenAsync(cancellationToken);
+
+                using var transaction = connection.BeginTransaction();
+                try
+                {
                 // Get next version for all entities in the batch
                 long newVersion;
                 using (var versionCmd = this.versionMapper.CreateGetNextVersionCommand())
@@ -702,25 +842,41 @@ namespace SQLite.Lib
                 }
 
                 transaction.Commit();
+                stopwatch.Stop();
+                Logger.BatchOperationStop("UpdateBatch", results.Count, listCacheKey, stopwatch);
                 return results;
             }
-            catch
+            catch (Exception ex)
             {
+                stopwatch.Stop();
+                Logger.BatchOperationFailed("UpdateBatch", listCacheKey, stopwatch, ex);
                 transaction.Rollback();
+                throw;
+            }
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                Logger.BatchOperationFailed("UpdateBatch", listCacheKey, stopwatch, ex);
                 throw;
             }
         }
 
         public async Task<int> DeleteBatchAsync(string listCacheKey, CallerInfo callerInfo, CancellationToken cancellationToken = default)
         {
-            var deletedCount = 0;
-
-            using var connection = new SQLiteConnection(this.connectionString);
-            await connection.OpenAsync(cancellationToken);
-
-            using var transaction = connection.BeginTransaction();
+            var stopwatch = Stopwatch.StartNew();
+            Logger.BatchOperationStart("DeleteBatch", 0, listCacheKey); // Count unknown at start
+            
             try
             {
+                var deletedCount = 0;
+
+                using var connection = new SQLiteConnection(this.connectionString);
+                await connection.OpenAsync(cancellationToken);
+
+                using var transaction = connection.BeginTransaction();
+                try
+                {
                 // Use injected EntryListMapping mapper
 
                 // Delete existing list mappings
@@ -732,11 +888,22 @@ namespace SQLite.Lib
                 }
 
                 transaction.Commit();
+                stopwatch.Stop();
+                Logger.BatchOperationStop("DeleteBatch", deletedCount, listCacheKey, stopwatch);
                 return deletedCount;
             }
-            catch
+            catch (Exception ex)
             {
+                stopwatch.Stop();
+                Logger.BatchOperationFailed("DeleteBatch", listCacheKey, stopwatch, ex);
                 transaction.Rollback();
+                throw;
+            }
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                Logger.BatchOperationFailed("DeleteBatch", listCacheKey, stopwatch, ex);
                 throw;
             }
         }
@@ -747,10 +914,15 @@ namespace SQLite.Lib
 
         public async Task<IEnumerable<T>> QueryAsync(Expression<Func<T, bool>> predicate, CallerInfo callerInfo, CancellationToken cancellationToken = default)
         {
-            var results = new List<T>();
+            var stopwatch = Stopwatch.StartNew();
+            Logger.QueryStart(this.tableName);
+            
+            try
+            {
+                var results = new List<T>();
 
-            using var connection = new SQLiteConnection(this.connectionString);
-            await connection.OpenAsync(cancellationToken);
+                using var connection = new SQLiteConnection(this.connectionString);
+                await connection.OpenAsync(cancellationToken);
 
             // Translate the expression to SQL
             var translator = new Mappings.SQLiteExpressionTranslator<T>(
@@ -833,7 +1005,23 @@ namespace SQLite.Lib
                 }
             }
 
-            return entities;
+                stopwatch.Stop();
+                Logger.QueryStop(this.tableName, entities.Count, stopwatch);
+                
+                // Check for slow queries (> 1 second)
+                if (stopwatch.ElapsedMilliseconds > 1000)
+                {
+                    Logger.SlowQuery(this.tableName, stopwatch.ElapsedMilliseconds);
+                }
+                
+                return entities;
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                Logger.QueryFailed(this.tableName, stopwatch, ex);
+                throw;
+            }
         }
 
         public async Task<PagedResult<T>> QueryPagedAsync(
@@ -849,8 +1037,13 @@ namespace SQLite.Lib
             if (pageNumber <= 0)
                 throw new ArgumentException("Page number must be greater than 0", nameof(pageNumber));
 
-            using var connection = new SQLiteConnection(this.connectionString);
-            await connection.OpenAsync(cancellationToken);
+            var stopwatch = Stopwatch.StartNew();
+            Logger.QueryStart(this.tableName);
+            
+            try
+            {
+                using var connection = new SQLiteConnection(this.connectionString);
+                await connection.OpenAsync(cancellationToken);
 
             // Translate the predicate expression to SQL
             var translator = new Mappings.SQLiteExpressionTranslator<T>(
@@ -933,19 +1126,40 @@ namespace SQLite.Lib
                 }
             }
 
-            return new PagedResult<T>
+                stopwatch.Stop();
+                Logger.QueryStop(this.tableName, items.Count, stopwatch);
+                
+                // Check for slow queries (> 1 second)
+                if (stopwatch.ElapsedMilliseconds > 1000)
+                {
+                    Logger.SlowQuery(this.tableName, stopwatch.ElapsedMilliseconds);
+                }
+
+                return new PagedResult<T>
+                {
+                    Items = items,
+                    PageNumber = pageNumber,
+                    PageSize = pageSize,
+                    TotalCount = totalCount
+                };
+            }
+            catch (Exception ex)
             {
-                Items = items,
-                PageNumber = pageNumber,
-                PageSize = pageSize,
-                TotalCount = totalCount
-            };
+                stopwatch.Stop();
+                Logger.QueryFailed(this.tableName, stopwatch, ex);
+                throw;
+            }
         }
 
         public async Task<long> CountAsync(Expression<Func<T, bool>> predicate = null, CancellationToken cancellationToken = default)
         {
-            using var connection = new SQLiteConnection(this.connectionString);
-            await connection.OpenAsync(cancellationToken);
+            var stopwatch = Stopwatch.StartNew();
+            Logger.QueryStart(this.tableName);
+            
+            try
+            {
+                using var connection = new SQLiteConnection(this.connectionString);
+                await connection.OpenAsync(cancellationToken);
 
             string whereClause = "1=1"; // Default condition if no predicate
             var parameters = new Dictionary<string, object>();
@@ -980,8 +1194,17 @@ namespace SQLite.Lib
                 command.Parameters.AddWithValue($"@{param.Key}", param.Value ?? DBNull.Value);
             }
 
-            var result = await command.ExecuteScalarAsync(cancellationToken);
-            return Convert.ToInt64(result);
+                var result = await command.ExecuteScalarAsync(cancellationToken);
+                stopwatch.Stop();
+                Logger.QueryStop(this.tableName, 1, stopwatch); // Count queries return single value
+                return Convert.ToInt64(result);
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                Logger.QueryFailed(this.tableName, stopwatch, ex);
+                throw;
+            }
         }
 
         public async Task<bool> ExistsAsync(Expression<Func<T, bool>> predicate, CancellationToken cancellationToken = default)
@@ -989,8 +1212,13 @@ namespace SQLite.Lib
             if (predicate == null)
                 throw new ArgumentNullException(nameof(predicate));
 
-            using var connection = new SQLiteConnection(this.connectionString);
-            await connection.OpenAsync(cancellationToken);
+            var stopwatch = Stopwatch.StartNew();
+            Logger.QueryStart(this.tableName);
+            
+            try
+            {
+                using var connection = new SQLiteConnection(this.connectionString);
+                await connection.OpenAsync(cancellationToken);
 
             // Translate the predicate expression to SQL
             var translator = new Mappings.SQLiteExpressionTranslator<T>(
@@ -1021,8 +1249,17 @@ namespace SQLite.Lib
                 command.Parameters.AddWithValue($"@{param.Key}", param.Value ?? DBNull.Value);
             }
 
-            var result = await command.ExecuteScalarAsync(cancellationToken);
-            return Convert.ToBoolean(result);
+                var result = await command.ExecuteScalarAsync(cancellationToken);
+                stopwatch.Stop();
+                Logger.QueryStop(this.tableName, 1, stopwatch); // Exists queries return single value
+                return Convert.ToBoolean(result);
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                Logger.QueryFailed(this.tableName, stopwatch, ex);
+                throw;
+            }
         }
 
         #endregion
@@ -1052,6 +1289,12 @@ namespace SQLite.Lib
             {
                 return result;
             }
+
+            var stopwatch = Stopwatch.StartNew();
+            Logger.BulkOperationStart("Import", totalCount);
+            
+            try
+            {
 
             using var connection = new SQLiteConnection(this.connectionString);
             await connection.OpenAsync(cancellationToken);
@@ -1149,31 +1392,44 @@ namespace SQLite.Lib
                     // Report progress
                     if (progress != null && processedCount % 100 == 0)
                     {
-                        progress.Report(new BulkOperationProgress
+                        var progressInfo = new BulkOperationProgress
                         {
                             ProcessedCount = processedCount,
                             TotalCount = totalCount,
                             ElapsedTime = DateTime.UtcNow - startTime,
                             CurrentOperation = $"Importing entities ({processedCount}/{totalCount})"
-                        });
+                        };
+                        progress.Report(progressInfo);
+                        Logger.BulkOperationProgress((int)progressInfo.PercentComplete, processedCount, totalCount);
                     }
                 }
             }
 
-            // Final progress report
-            if (progress != null)
-            {
-                progress.Report(new BulkOperationProgress
+                // Final progress report
+                if (progress != null)
                 {
-                    ProcessedCount = processedCount,
-                    TotalCount = totalCount,
-                    ElapsedTime = DateTime.UtcNow - startTime,
-                    CurrentOperation = "Import completed"
-                });
-            }
+                    progress.Report(new BulkOperationProgress
+                    {
+                        ProcessedCount = processedCount,
+                        TotalCount = totalCount,
+                        ElapsedTime = DateTime.UtcNow - startTime,
+                        CurrentOperation = "Import completed"
+                    });
+                    
+                    Logger.BulkOperationProgress(100, processedCount, totalCount);
+                }
 
-            result.Duration = DateTime.UtcNow - startTime;
-            return result;
+                result.Duration = DateTime.UtcNow - startTime;
+                stopwatch.Stop();
+                Logger.BulkOperationStop("Import", processedCount, stopwatch);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                Logger.BulkOperationFailed("Import", stopwatch, ex);
+                throw;
+            }
         }
 
         public async Task<BulkExportResult<T>> BulkExportAsync(Expression<Func<T, bool>> predicate = null, BulkExportOptions options = null, IProgress<BulkOperationProgress> progress = null, CancellationToken cancellationToken = default)
@@ -1182,8 +1438,13 @@ namespace SQLite.Lib
             var startTime = DateTime.UtcNow;
             var exportedEntities = new List<T>();
 
-            using var connection = new SQLiteConnection(this.connectionString);
-            await connection.OpenAsync(cancellationToken);
+            var stopwatch = Stopwatch.StartNew();
+            Logger.BulkOperationStart("Export", 0); // Count unknown at start
+            
+            try
+            {
+                using var connection = new SQLiteConnection(this.connectionString);
+                await connection.OpenAsync(cancellationToken);
 
             // Build WHERE clause
             var whereClause = "1=1"; // Default condition
@@ -1270,13 +1531,15 @@ namespace SQLite.Lib
                         // Report progress
                         if (progress != null)
                         {
-                            progress.Report(new BulkOperationProgress
+                            var progressInfo = new BulkOperationProgress
                             {
                                 ProcessedCount = processedCount,
                                 TotalCount = totalCount,
                                 ElapsedTime = DateTime.UtcNow - startTime,
                                 CurrentOperation = $"Exporting entities ({processedCount}/{totalCount})"
-                            });
+                            };
+                            progress.Report(progressInfo);
+                            Logger.BulkOperationProgress((int)progressInfo.PercentComplete, processedCount, totalCount);
                         }
                     }
                 }
@@ -1298,7 +1561,12 @@ namespace SQLite.Lib
                     ElapsedTime = DateTime.UtcNow - startTime,
                     CurrentOperation = "Export completed"
                 });
+                
+                Logger.BulkOperationProgress(100, processedCount, totalCount);
             }
+
+            stopwatch.Stop();
+            Logger.BulkOperationStop("Export", exportedEntities.Count, stopwatch);
 
             return new BulkExportResult<T>
             {
@@ -1306,6 +1574,13 @@ namespace SQLite.Lib
                 ExportedCount = exportedEntities.Count,
                 Duration = DateTime.UtcNow - startTime
             };
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                Logger.BulkOperationFailed("Export", stopwatch, ex);
+                throw;
+            }
         }
 
         #endregion
@@ -1315,14 +1590,28 @@ namespace SQLite.Lib
             return new TransactionScope<T, TKey>(this.connectionString, this);
         }
 
-        public Task<int> CleanupExpiredAsync(CancellationToken cancellationToken = default)
+        public async Task OptimizeStorageAsync(CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
-        }
-
-        public Task OptimizeStorageAsync(CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException();
+            var stopwatch = Stopwatch.StartNew();
+            Logger.OptimizeStorageStart();
+            
+            try
+            {
+                using var connection = new SQLiteConnection(this.connectionString);
+                await connection.OpenAsync(cancellationToken);
+                
+                using var command = new SQLiteCommand("VACUUM;", connection);
+                await command.ExecuteNonQueryAsync(cancellationToken);
+                
+                stopwatch.Stop();
+                Logger.OptimizeStorageStop(stopwatch);
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                Logger.SqlExecuteFailed(ex);
+                throw;
+            }
         }
 
         public Task<StorageStatistics> GetStatisticsAsync(CancellationToken cancellationToken = default)

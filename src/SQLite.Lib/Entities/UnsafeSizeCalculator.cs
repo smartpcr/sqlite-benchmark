@@ -37,17 +37,18 @@ namespace SQLite.Lib.Entities
 
             // This is highly unsafe and platform-dependent
             // Only for educational purposes!
-            var tr = __makeref(obj);
-            var ptr = **(IntPtr**)(&tr);
+            // Commenting out as taking address of TypedReference is not allowed
+            // var tr = __makeref(obj);
+            // var ptr = **(IntPtr**)(&tr);
 
             // Read the method table pointer (first field in object header)
-            var methodTable = *(IntPtr*)ptr;
+            // var methodTable = *(IntPtr*)ptr;
 
             // The size is often stored at a specific offset in the method table
             // This is highly implementation-specific!
             // return *(int*)(methodTable + 4);
 
-            // Safer to use our estimation method
+            // Use our estimation method instead
             return UnsafeSizeCalculator.EstimateObjectSize(obj);
         }
 

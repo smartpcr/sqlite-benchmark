@@ -14,6 +14,7 @@ namespace SQLite.Lib
     using System.Threading;
     using System.Threading.Tasks;
     using SQLite.Lib.Contracts;
+    using SQLite.Lib.Traces;
 
     /// <summary>
     /// Implementation of ITransactionScope that manages transactional operations.
@@ -41,6 +42,8 @@ namespace SQLite.Lib
             this.TransactionId = Guid.NewGuid().ToString();
             this.State = TransactionState.Active;
             this.StartTime = DateTimeOffset.UtcNow;
+            
+            Logger.TransactionStart();
         }
 
         public void AddOperation(ITransactionalOperation<T, T> operation)
@@ -80,6 +83,7 @@ namespace SQLite.Lib
                 throw new InvalidOperationException($"Cannot rollback a {this.State} transaction.");
 
             this.shouldCommit = false;
+            Logger.TransactionRollback();
         }
 
         /// <summary>
@@ -91,6 +95,7 @@ namespace SQLite.Lib
                 throw new InvalidOperationException($"Cannot commit a {this.State} transaction.");
 
             this.shouldCommit = true;
+            Logger.TransactionCommit();
         }
 
         private async Task<bool> ExecuteAsync(CancellationToken cancellationToken = default)
@@ -148,6 +153,7 @@ namespace SQLite.Lib
             catch (Exception ex)
             {
                 this.State = TransactionState.RollingBack;
+                Logger.TransactionFailed(ex);
 
                 // Rollback in reverse order
                 var rollbackErrors = new List<Exception>();
@@ -252,7 +258,7 @@ namespace SQLite.Lib
                             catch (Exception ex)
                             {
                                 // Log rollback error but continue with other rollbacks
-                                // In production, this would be logged
+                                Logger.TransactionFailed(ex);
                             }
                         }
 
@@ -261,7 +267,8 @@ namespace SQLite.Lib
                 }
                 catch (Exception ex)
                 {
-                    // In production, this would be logged
+                    // Log the error
+                    Logger.TransactionFailed(ex);
                     this.State = TransactionState.Failed;
                 }
             }

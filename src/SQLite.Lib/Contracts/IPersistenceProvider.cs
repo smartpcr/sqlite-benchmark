@@ -231,13 +231,6 @@ namespace SQLite.Lib.Contracts
         #region Maintenance Operations
 
         /// <summary>
-        /// Removes expired entities based on their ExpirationTime.
-        /// </summary>
-        /// <param name="cancellationToken">Cancellation token</param>
-        /// <returns>Number of entities removed</returns>
-        Task<int> CleanupExpiredAsync(CancellationToken cancellationToken = default);
-
-        /// <summary>
         /// Optimizes the underlying storage (e.g., vacuum, reindex).
         /// </summary>
         /// <param name="cancellationToken">Cancellation token</param>
