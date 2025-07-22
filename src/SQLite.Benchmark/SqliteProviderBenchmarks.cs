@@ -1,27 +1,29 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
-using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Columns;
-using BenchmarkDotNet.Configs;
-using BenchmarkDotNet.Diagnosers;
-using BenchmarkDotNet.Jobs;
-using BenchmarkDotNet.Loggers;
-using BenchmarkDotNet.Reports;
-using SQLite.Lib;
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
 
 namespace SQLite.Benchmark
 {
+    using System;
+    using System.Collections.Generic;
+    using System.IO;
+    using System.Linq;
+    using System.Threading.Tasks;
+    using BenchmarkDotNet.Attributes;
+    using BenchmarkDotNet.Columns;
+    using BenchmarkDotNet.Configs;
+    using BenchmarkDotNet.Diagnosers;
+    using BenchmarkDotNet.Jobs;
+    using BenchmarkDotNet.Loggers;
+    using BenchmarkDotNet.Reports;
+    using SQLite.Lib;
     [Config(typeof(BenchmarkConfig))]
     [MemoryDiagnoser]
     public class SqliteProviderBenchmarks
     {
-        private SqliteProvider<BenchmarkEntity> _provider = null!;
-        private string _dbPath = null!;
-        private List<BenchmarkEntity> _testData = null!;
-        private List<long> _existingIds = null!;
+        private PersistenceProvider<BenchmarkEntity> provider = null!;
+        private string dbPath = null!;
+        private List<BenchmarkEntity> testData = null!;
+        private List<long> existingIds = null!;
 
         [Params(100, 1000, 10000)] public int RecordCount { get; set; }
 
@@ -30,14 +32,14 @@ namespace SQLite.Benchmark
         [GlobalSetup]
         public void Setup()
         {
-            _dbPath = Path.Combine(Path.GetTempPath(), $"benchmark_{Guid.NewGuid()}.db");
-            var connectionString = $"Data Source={_dbPath};Version=3;";
+            this.dbPath = Path.Combine(Path.GetTempPath(), $"benchmark_{Guid.NewGuid()}.db");
+            var connectionString = $"Data Source={this.dbPath};Version=3;";
 
-            _provider = new SqliteProvider<BenchmarkEntity>(connectionString);
-            _provider.CreateTable();
+            this.provider = new PersistenceProvider<BenchmarkEntity>(connectionString);
+            this.provider.CreateTable();
 
             // Prepare test data
-            _testData = Enumerable.Range(1, RecordCount)
+            this.testData = Enumerable.Range(1, this.RecordCount)
                 .Select(i => new BenchmarkEntity
                 {
                     Name = $"Entity {i}",
@@ -50,20 +52,20 @@ namespace SQLite.Benchmark
                 .ToList();
 
             // Insert some initial data for read/update/delete benchmarks
-            _provider.InsertBatch(_testData.Take(RecordCount / 2));
-            _existingIds = _provider.GetAll().Select(e => e.Id).ToList();
+            this.provider.InsertBatch(this.testData.Take(this.RecordCount / 2));
+            this.existingIds = this.provider.GetAll().Select(e => e.Id).ToList();
         }
 
         [GlobalCleanup]
         public void Cleanup()
         {
-            _provider = null!;
+            this.provider = null!;
             GC.Collect();
             GC.WaitForPendingFinalizers();
 
-            if (File.Exists(_dbPath))
+            if (File.Exists(this.dbPath))
             {
-                try { File.Delete(_dbPath); }
+                try { File.Delete(this.dbPath); }
                 catch { }
             }
         }
@@ -71,45 +73,45 @@ namespace SQLite.Benchmark
         [Benchmark]
         public void SingleInsert()
         {
-            var entity = _testData[0];
-            _provider.Insert(entity);
+            var entity = this.testData[0];
+            this.provider.Insert(entity);
         }
 
         [Benchmark]
         public int BatchInsert()
         {
-            var batch = _testData.Take(100).ToList();
-            return _provider.InsertBatch(batch);
+            var batch = this.testData.Take(100).ToList();
+            return this.provider.InsertBatch(batch);
         }
 
         [Benchmark]
         public BenchmarkEntity SingleSelect()
         {
-            var id = _existingIds[_existingIds.Count / 2];
-            return _provider.GetById(id);
+            var id = this.existingIds[this.existingIds.Count / 2];
+            return this.provider.GetById(id);
         }
 
         [Benchmark]
         public List<BenchmarkEntity> SelectAll()
         {
-            return _provider.GetAll().ToList();
+            return this.provider.GetAll().ToList();
         }
 
         [Benchmark]
         public List<BenchmarkEntity> SelectWithFilter()
         {
-            return _provider.Find(e => e.IsActive && e.Value > RecordCount / 4).ToList();
+            return this.provider.Find(e => e.IsActive && e.Value > this.RecordCount / 4).ToList();
         }
 
         [Benchmark]
         public bool SingleUpdate()
         {
-            var entity = _provider.GetById(_existingIds[0]);
+            var entity = this.provider.GetById(this.existingIds[0]);
             if (entity != null)
             {
                 entity.Name = "Updated " + entity.Name;
                 entity.Value++;
-                return _provider.Update(entity);
+                return this.provider.Update(entity);
             }
 
             return false;
@@ -118,11 +120,11 @@ namespace SQLite.Benchmark
         [Benchmark]
         public bool SingleDelete()
         {
-            if (_existingIds.Any())
+            if (this.existingIds.Any())
             {
-                var id = _existingIds[0];
-                _existingIds.RemoveAt(0);
-                return _provider.Delete(id);
+                var id = this.existingIds[0];
+                this.existingIds.RemoveAt(0);
+                return this.provider.Delete(id);
             }
 
             return false;
@@ -131,17 +133,17 @@ namespace SQLite.Benchmark
         [Benchmark]
         public long CountAll()
         {
-            return _provider.Count();
+            return this.provider.Count();
         }
 
         [Benchmark]
         public void TransactionBatchInsert()
         {
-            using (_provider.BeginTransaction())
+            using (this.provider.BeginTransaction())
             {
                 for (int i = 0; i < 10; i++)
                 {
-                    _provider.Insert(_testData[i]);
+                    this.provider.Insert(this.testData[i]);
                 }
             }
         }
@@ -150,13 +152,13 @@ namespace SQLite.Benchmark
         public async Task ConcurrentReads()
         {
             var tasks = new Task[ThreadCount];
-            for (int i = 0; i < ThreadCount; i++)
+            for (int i = 0; i < this.ThreadCount; i++)
             {
                 tasks[i] = Task.Run(() =>
                 {
                     for (int j = 0; j < 10; j++)
                     {
-                        _provider.GetAll().Count();
+                        this.provider.GetAll().Count();
                     }
                 });
             }
@@ -168,7 +170,7 @@ namespace SQLite.Benchmark
         public async Task ConcurrentWrites()
         {
             var tasks = new Task[ThreadCount];
-            for (int i = 0; i < ThreadCount; i++)
+            for (int i = 0; i < this.ThreadCount; i++)
             {
                 var threadId = i;
                 tasks[i] = Task.Run(() =>
@@ -176,7 +178,7 @@ namespace SQLite.Benchmark
                     for (int j = 0; j < 5; j++)
                     {
                         var entity = new BenchmarkEntity { Name = $"Concurrent {threadId}-{j}", Value = threadId * 100 + j };
-                        _provider.Insert(entity);
+                        this.provider.Insert(entity);
                     }
                 });
             }
@@ -195,19 +197,26 @@ namespace SQLite.Benchmark
                     ORDER BY json_extract(Data, '$.Value') DESC
                     LIMIT 50";
 
-            _provider.ExecuteQuery(sql, new { minValue = RecordCount / 2 }).ToList();
+            this.provider.ExecuteQuery(sql, new { minValue = this.RecordCount / 2 }).ToList();
         }
     }
 
     public class BenchmarkEntity
     {
         public long Id { get; set; }
+
         public string Name { get; set; }
+
         public int Value { get; set; }
+
         public string Description { get; set; }
+
         public bool IsActive { get; set; }
+
         public double Score { get; set; }
+
         public string Tags { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 
@@ -220,13 +229,13 @@ namespace SQLite.Benchmark
                 .WithIterationCount(10));
 
             AddDiagnoser(MemoryDiagnoser.Default);
-            
+
             // Add column providers for better output
             AddColumnProvider(DefaultColumnProviders.Instance);
-            
+
             // Add loggers
             AddLogger(ConsoleLogger.Default);
-            
+
             // Set summary style
             WithSummaryStyle(SummaryStyle.Default.WithRatioStyle(RatioStyle.Trend));
         }

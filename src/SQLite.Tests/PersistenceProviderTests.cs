@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -13,11 +14,11 @@ namespace SQLite.Tests
 {
 
     [TestClass]
-    public class SqliteProviderTests
+    public class PersistenceProviderTests
     {
         private string _dbPath = null!;
-        private SqliteProvider<TestEntity> _provider = null!;
-        private ILogger<SqliteProvider<TestEntity>> _logger = null!;
+        private PersistenceProvider<TestEntity> _provider = null!;
+        private ILogger<PersistenceProvider<TestEntity>> _logger = null!;
 
         [TestInitialize]
         public void Setup()
@@ -33,9 +34,9 @@ namespace SQLite.Tests
                 .CreateLogger();
 
             var loggerFactory = new SerilogLoggerFactory(serilogLogger);
-            _logger = loggerFactory.CreateLogger<SqliteProvider<TestEntity>>();
+            _logger = loggerFactory.CreateLogger<PersistenceProvider<TestEntity>>();
 
-            _provider = new SqliteProvider<TestEntity>(connectionString, _logger);
+            _provider = new PersistenceProvider<TestEntity>(connectionString, _logger);
             _provider.CreateTable();
         }
 
