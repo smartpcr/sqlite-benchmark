@@ -36,22 +36,14 @@ namespace SQLite.Lib.Contracts
         /// Adds a forward operation to the transaction.
         /// Operations are chained - output of one becomes input of the next.
         /// </summary>
-        /// <typeparam name="T">The entity type</typeparam>
-        /// <typeparam name="TKey">The key type</typeparam>
         /// <param name="operation">The forward operation</param>
-        void AddOperation<T, TKey>(ITransactionalOperation<T, TKey> operation)
-            where T : IEntity<TKey>
-            where TKey : IEquatable<TKey>;
+        void AddOperation(ITransactionalOperation operation);
 
         /// <summary>
         /// Adds multiple operations that will be chained together.
         /// </summary>
         /// <param name="operations">List of operations to execute in order</param>
-        /// <typeparam name="T">The entity type</typeparam>
-        /// <typeparam name="TKey">The key type</typeparam>
-        void AddOperations<T, TKey>(IEnumerable<ITransactionalOperation<T, TKey>> operations)
-            where T : IEntity<TKey>
-            where TKey : IEquatable<TKey>;
+        void AddOperations(IEnumerable<ITransactionalOperation> operations);
 
         /// <summary>
         /// Executes all operations in the transaction.

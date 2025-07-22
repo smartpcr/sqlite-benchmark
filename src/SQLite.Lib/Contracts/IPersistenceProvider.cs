@@ -189,7 +189,7 @@ namespace SQLite.Lib.Contracts
         /// Begins a new transaction scope.
         /// </summary>
         /// <returns>Transaction scope for managing transactional operations</returns>
-        Task<ITransactionScope> BeginTransactionAsync(CancellationToken cancellationToken = default);
+        ITransactionScope BeginTransaction(CancellationToken cancellationToken = default);
 
         #endregion
 

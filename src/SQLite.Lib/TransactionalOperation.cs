@@ -1,88 +1,68 @@
-using System;
-using SQLite.Lib.Contracts;
+// -----------------------------------------------------------------------
+// <copyright file="TransactionalOperation.cs" company="Microsoft Corp.">
+//     Copyright (c) Microsoft Corp. All rights reserved.
+// </copyright>
+// -----------------------------------------------------------------------
+
 
 namespace SQLite.Lib
 {
+    using System;
+    using System.Data.SqlClient;
+    using SQLite.Lib.Contracts;
+
     /// <summary>
     /// Concrete implementation of a transactional operation
     /// </summary>
-    /// <typeparam name="T">The entity type</typeparam>
-    public class TransactionalOperation<T> : ITransactionalOperation<T> where T : class
+    public class TransactionalOperation : ITransactionalOperation
     {
-        public OperationType OperationType { get; }
-        public T Entity { get; }
-        public long? EntityId { get; }
+        public string OperationId { get; private set; }
+        public string Description { get; private set; }
+        public SqlExecMode ExecMode { get; private set; }
+        public SqlCommand CommitCommand { get; private set; }
+        public SqlCommand RollbackCommand { get; private set; }
 
-        private TransactionalOperation(OperationType operationType, T entity = null, long? entityId = null)
+        private TransactionalOperation()
         {
-            OperationType = operationType;
-            Entity = entity;
-            EntityId = entityId;
+        }
 
-            // Validate operation parameters
-            switch (operationType)
+        public static TransactionalOperation Create<T, TKey>(
+            IPersistenceProvider<T, TKey> persistenceProvider,
+            DbOperationType opType,
+            T fromValue,
+            T toValue = null)
+            where T : class, IEntity<TKey>
+            where TKey : IEquatable<TKey>
+        {
+            var transactionalOperation = new TransactionalOperation();
+
+            transactionalOperation.OperationId = Guid.NewGuid().ToString();
+            transactionalOperation.Description = $"{opType} operation for entity type {typeof(T).Name}";
+            switch (opType)
             {
-                case OperationType.Insert:
-                case OperationType.Update:
-                    if (entity == null)
-                        throw new ArgumentNullException(nameof(entity), $"Entity cannot be null for {operationType} operation");
+                case DbOperationType.Select:
+                    transactionalOperation.ExecMode = SqlExecMode.ExecuteReader;
+                    transactionalOperation.CommitCommand = persistenceProvider.CreateSelectCommand(fromValue.Id, fromValue.Version);
+                    transactionalOperation.RollbackCommand = null; // No rollback for select
                     break;
-                case OperationType.Delete:
-                    if (!entityId.HasValue)
-                        throw new ArgumentException("EntityId must have a value for Delete operation", nameof(entityId));
+                case DbOperationType.Insert:
+                    transactionalOperation.ExecMode = SqlExecMode.ExecuteNonQuery;
+                    transactionalOperation.CommitCommand = persistenceProvider.CreateInsertCommand(fromValue);
+                    transactionalOperation.RollbackCommand = persistenceProvider.CreateDeleteCommand(fromValue.Id);
+                    break;
+                case DbOperationType.Update:
+                    transactionalOperation.ExecMode = SqlExecMode.ExecuteNonQuery;
+                    transactionalOperation.CommitCommand = persistenceProvider.CreateUpdateCommand(fromValue, toValue);
+                    transactionalOperation.RollbackCommand = persistenceProvider.CreateUpdateCommand(toValue, fromValue);
+                    break;
+                case DbOperationType.Delete:
+                    transactionalOperation.ExecMode = SqlExecMode.ExecuteNonQuery;
+                    transactionalOperation.CommitCommand = persistenceProvider.CreateDeleteCommand(fromValue.Id);
+                    transactionalOperation.RollbackCommand = persistenceProvider.CreateInsertCommand(fromValue);
                     break;
             }
-        }
 
-        /// <summary>
-        /// Creates an insert operation
-        /// </summary>
-        public static TransactionalOperation<T> CreateInsert(T entity)
-        {
-            return new TransactionalOperation<T>(OperationType.Insert, entity);
-        }
-
-        /// <summary>
-        /// Creates an update operation
-        /// </summary>
-        public static TransactionalOperation<T> CreateUpdate(T entity)
-        {
-            return new TransactionalOperation<T>(OperationType.Update, entity);
-        }
-
-        /// <summary>
-        /// Creates a delete operation
-        /// </summary>
-        public static TransactionalOperation<T> CreateDelete(long entityId)
-        {
-            return new TransactionalOperation<T>(OperationType.Delete, entityId: entityId);
-        }
-
-        public void Commit(IPersistenceProvider<,> provider)
-        {
-            if (provider == null)
-                throw new ArgumentNullException(nameof(provider));
-
-            switch (OperationType)
-            {
-                case OperationType.Insert:
-                    provider.Insert(Entity);
-                    break;
-                case OperationType.Update:
-                    provider.Update(Entity);
-                    break;
-                case OperationType.Delete:
-                    provider.Delete(EntityId.Value);
-                    break;
-                default:
-                    throw new InvalidOperationException($"Unknown operation type: {OperationType}");
-            }
-        }
-
-        public void Rollback()
-        {
-            // In SQLite, rollback is handled at the transaction level
-            // Individual operations don't need to do anything special
+            return transactionalOperation;
         }
     }
 }

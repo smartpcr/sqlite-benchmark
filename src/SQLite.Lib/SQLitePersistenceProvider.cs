@@ -13,7 +13,6 @@ namespace SQLite.Lib
     using System.Linq.Expressions;
     using System.Threading;
     using System.Threading.Tasks;
-    using Newtonsoft.Json;
     using SQLite.Lib.Contracts;
     using SQLite.Lib.Serialization;
 
@@ -558,9 +557,9 @@ namespace SQLite.Lib
             throw new NotImplementedException();
         }
 
-        public Task<ITransactionScope> BeginTransactionAsync(CancellationToken cancellationToken = default)
+        public ITransactionScope BeginTransaction(CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            return new TransactionScope(this.connectionString);
         }
 
         public Task<int> CleanupExpiredAsync(CancellationToken cancellationToken = default)
