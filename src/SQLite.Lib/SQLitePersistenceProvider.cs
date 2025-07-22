@@ -745,38 +745,567 @@ namespace SQLite.Lib
 
         #region Query operations
 
-        public Task<IEnumerable<T>> QueryAsync(Expression<Func<T, bool>> predicate, CallerInfo callerInfo, CancellationToken cancellationToken = default)
+        public async Task<IEnumerable<T>> QueryAsync(Expression<Func<T, bool>> predicate, CallerInfo callerInfo, CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            var results = new List<T>();
+
+            using var connection = new SQLiteConnection(this.connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            // Translate the expression to SQL
+            var translator = new Mappings.SQLiteExpressionTranslator<T>(
+                this.Mapper.GetPropertyMappings(),
+                () => this.Mapper.GetPrimaryKeyColumn());
+            var translationResult = translator.Translate(predicate);
+
+            // Build the query
+            var sql = $@"
+                SELECT {string.Join(", ", this.Mapper.GetSelectColumns())}
+                FROM {this.tableName}
+                WHERE {translationResult.Sql}
+                  AND IsDeleted = 0
+                ORDER BY Version DESC";
+
+            using var command = new SQLiteCommand(sql, connection);
+
+            // Add parameters from the translation
+            foreach (var param in translationResult.Parameters)
+            {
+                command.Parameters.AddWithValue($"@{param.Key}", param.Value ?? DBNull.Value);
+            }
+
+            using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+            // Track the latest version for each unique key
+            var latestVersions = new Dictionary<TKey, long>();
+            var entities = new List<T>();
+
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var entity = this.Mapper.MapFromReader(reader);
+                if (entity != null)
+                {
+                    // Check if we already have this key and if this version is newer
+                    if (!latestVersions.ContainsKey(entity.Id) || entity.Version > latestVersions[entity.Id])
+                    {
+                        latestVersions[entity.Id] = entity.Version;
+
+                        // Remove any previous version of this entity
+                        entities.RemoveAll(e => e.Id.Equals(entity.Id));
+                        entities.Add(entity);
+                    }
+                }
+            }
+
+            // Record access history for query operation if needed
+            if (callerInfo != null)
+            {
+                try
+                {
+                    var historyInsertSql = @"
+                        INSERT INTO CacheAccessHistory (
+                            CacheKey, TypeName, Operation, CacheHit, Version,
+                            CallerFile, CallerMember, CallerLineNumber, Timestamp
+                        ) VALUES (
+                            @key, @typeName, @operation, @cacheHit, @version,
+                            @callerFile, @callerMember, @callerLineNumber, @timestamp
+                        )";
+
+                    using var historyConnection = new SQLiteConnection(this.connectionString);
+                    await historyConnection.OpenAsync(cancellationToken);
+
+                    using var historyCommand = new SQLiteCommand(historyInsertSql, historyConnection);
+                    historyCommand.Parameters.AddWithValue("@key", $"query-{translationResult.Sql.GetHashCode()}");
+                    historyCommand.Parameters.AddWithValue("@typeName", typeof(T).Name);
+                    historyCommand.Parameters.AddWithValue("@operation", "Query");
+                    historyCommand.Parameters.AddWithValue("@cacheHit", entities.Count > 0 ? 1 : 0);
+                    historyCommand.Parameters.AddWithValue("@version", DBNull.Value);
+                    historyCommand.Parameters.AddWithValue("@callerFile", callerInfo.CallerFilePath ?? (object)DBNull.Value);
+                    historyCommand.Parameters.AddWithValue("@callerMember", callerInfo.CallerMemberName ?? (object)DBNull.Value);
+                    historyCommand.Parameters.AddWithValue("@callerLineNumber", callerInfo.CallerLineNumber);
+                    historyCommand.Parameters.AddWithValue("@timestamp", DateTimeOffset.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fffzzz"));
+
+                    await historyCommand.ExecuteNonQueryAsync(cancellationToken);
+                }
+                catch
+                {
+                    // Ignore history recording failures
+                }
+            }
+
+            return entities;
         }
 
-        public Task<PagedResult<T>> QueryPagedAsync(Expression<Func<T, bool>> predicate, int pageSize, int pageNumber, Expression<Func<T, IComparable>> orderBy = null, bool ascending = true, CancellationToken cancellationToken = default)
+        public async Task<PagedResult<T>> QueryPagedAsync(
+            Expression<Func<T, bool>> predicate,
+            int pageSize,
+            int pageNumber,
+            Expression<Func<T, IComparable>> orderBy = null,
+            bool ascending = true,
+            CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            if (pageSize <= 0)
+                throw new ArgumentException("Page size must be greater than 0", nameof(pageSize));
+            if (pageNumber <= 0)
+                throw new ArgumentException("Page number must be greater than 0", nameof(pageNumber));
+
+            using var connection = new SQLiteConnection(this.connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            // Translate the predicate expression to SQL
+            var translator = new Mappings.SQLiteExpressionTranslator<T>(
+                this.Mapper.GetPropertyMappings(),
+                () => this.Mapper.GetPrimaryKeyColumn());
+            var translationResult = translator.Translate(predicate);
+
+            // First, get the total count of matching records (only counting latest versions)
+            var countSql = $@"
+                WITH LatestVersions AS (
+                    SELECT {this.Mapper.GetPrimaryKeyColumn()}, MAX(Version) as MaxVersion
+                    FROM {this.tableName}
+                    WHERE {translationResult.Sql}
+                      AND IsDeleted = 0
+                    GROUP BY {this.Mapper.GetPrimaryKeyColumn()}
+                )
+                SELECT COUNT(*) FROM LatestVersions";
+
+            long totalCount;
+            using (var countCommand = new SQLiteCommand(countSql, connection))
+            {
+                // Add parameters for count query
+                foreach (var param in translationResult.Parameters)
+                {
+                    countCommand.Parameters.AddWithValue($"@{param.Key}", param.Value ?? DBNull.Value);
+                }
+
+                var countResult = await countCommand.ExecuteScalarAsync(cancellationToken);
+                totalCount = Convert.ToInt64(countResult);
+            }
+
+            // Build ORDER BY clause using the translator
+            var orderByClause = "ORDER BY ";
+            var orderByTranslation = translator.TranslateOrderBy(orderBy, ascending);
+            if (!string.IsNullOrEmpty(orderByTranslation))
+            {
+                orderByClause += $"{orderByTranslation}, ";
+            }
+            // Always add Version DESC as secondary sort to ensure consistent ordering
+            orderByClause += "Version DESC";
+
+            // Calculate offset for pagination
+            var offset = (pageNumber - 1) * pageSize;
+
+            // Build the main query with pagination
+            var sql = $@"
+                WITH LatestVersions AS (
+                    SELECT *, ROW_NUMBER() OVER (PARTITION BY {this.Mapper.GetPrimaryKeyColumn()} ORDER BY Version DESC) as rn
+                    FROM {this.tableName}
+                    WHERE {translationResult.Sql}
+                      AND IsDeleted = 0
+                )
+                SELECT {string.Join(", ", this.Mapper.GetSelectColumns().Select(c => $"lv.{c}"))}
+                FROM LatestVersions lv
+                WHERE lv.rn = 1
+                {orderByClause}
+                LIMIT @pageSize OFFSET @offset";
+
+            var items = new List<T>();
+            using (var command = new SQLiteCommand(sql, connection))
+            {
+                // Add parameters from the translation
+                foreach (var param in translationResult.Parameters)
+                {
+                    command.Parameters.AddWithValue($"@{param.Key}", param.Value ?? DBNull.Value);
+                }
+
+                // Add pagination parameters
+                command.Parameters.AddWithValue("@pageSize", pageSize);
+                command.Parameters.AddWithValue("@offset", offset);
+
+                using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    var entity = this.Mapper.MapFromReader(reader);
+                    if (entity != null)
+                    {
+                        items.Add(entity);
+                    }
+                }
+            }
+
+            return new PagedResult<T>
+            {
+                Items = items,
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+                TotalCount = totalCount
+            };
         }
 
-        public Task<long> CountAsync(Expression<Func<T, bool>> predicate = null, CancellationToken cancellationToken = default)
+        public async Task<long> CountAsync(Expression<Func<T, bool>> predicate = null, CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            using var connection = new SQLiteConnection(this.connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            string whereClause = "1=1"; // Default condition if no predicate
+            var parameters = new Dictionary<string, object>();
+
+            // If predicate is provided, translate it to SQL
+            if (predicate != null)
+            {
+                var translator = new Mappings.SQLiteExpressionTranslator<T>(
+                    this.Mapper.GetPropertyMappings(),
+                    () => this.Mapper.GetPrimaryKeyColumn());
+                var translationResult = translator.Translate(predicate);
+                whereClause = translationResult.Sql;
+                parameters = translationResult.Parameters;
+            }
+
+            // Count only the latest version of each entity (excluding soft-deleted)
+            var sql = $@"
+                WITH LatestVersions AS (
+                    SELECT {this.Mapper.GetPrimaryKeyColumn()}, MAX(Version) as MaxVersion
+                    FROM {this.tableName}
+                    WHERE {whereClause}
+                      AND IsDeleted = 0
+                    GROUP BY {this.Mapper.GetPrimaryKeyColumn()}
+                )
+                SELECT COUNT(*) FROM LatestVersions";
+
+            using var command = new SQLiteCommand(sql, connection);
+
+            // Add parameters from the translation
+            foreach (var param in parameters)
+            {
+                command.Parameters.AddWithValue($"@{param.Key}", param.Value ?? DBNull.Value);
+            }
+
+            var result = await command.ExecuteScalarAsync(cancellationToken);
+            return Convert.ToInt64(result);
         }
 
-        public Task<bool> ExistsAsync(Expression<Func<T, bool>> predicate, CancellationToken cancellationToken = default)
+        public async Task<bool> ExistsAsync(Expression<Func<T, bool>> predicate, CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            if (predicate == null)
+                throw new ArgumentNullException(nameof(predicate));
+
+            using var connection = new SQLiteConnection(this.connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            // Translate the predicate expression to SQL
+            var translator = new Mappings.SQLiteExpressionTranslator<T>(
+                this.Mapper.GetPropertyMappings(),
+                () => this.Mapper.GetPrimaryKeyColumn());
+            var translationResult = translator.Translate(predicate);
+
+            // Check if any entity exists matching the predicate (only checking latest versions)
+            var sql = $@"
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM {this.tableName} t1
+                    WHERE {translationResult.Sql}
+                      AND IsDeleted = 0
+                      AND Version = (
+                          SELECT MAX(Version)
+                          FROM {this.tableName} t2
+                          WHERE t2.{this.Mapper.GetPrimaryKeyColumn()} = t1.{this.Mapper.GetPrimaryKeyColumn()}
+                      )
+                    LIMIT 1
+                )";
+
+            using var command = new SQLiteCommand(sql, connection);
+
+            // Add parameters from the translation
+            foreach (var param in translationResult.Parameters)
+            {
+                command.Parameters.AddWithValue($"@{param.Key}", param.Value ?? DBNull.Value);
+            }
+
+            var result = await command.ExecuteScalarAsync(cancellationToken);
+            return Convert.ToBoolean(result);
         }
 
         #endregion
 
         #region Bulk operations
 
-        public Task<BulkImportResult> BulkImportAsync(IEnumerable<T> entities, BulkImportOptions options = null, IProgress<BulkOperationProgress> progress = null, CancellationToken cancellationToken = default)
+        public async Task<BulkImportResult> BulkImportAsync(
+            IEnumerable<T> entities,
+            BulkImportOptions options = null,
+            IProgress<BulkOperationProgress> progress = null,
+            CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            options ??= new BulkImportOptions();
+            var result = new BulkImportResult();
+            var startTime = DateTime.UtcNow;
+
+            if (entities == null)
+            {
+                result.Errors.Add("Entities collection is null");
+                return result;
+            }
+
+            var entityList = entities.ToList();
+            var totalCount = entityList.Count;
+
+            if (totalCount == 0)
+            {
+                return result;
+            }
+
+            using var connection = new SQLiteConnection(this.connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            // Get next version for all entities
+            long version;
+            using (var versionCmd = this.versionMapper.CreateGetNextVersionCommand())
+            {
+                versionCmd.Connection = connection;
+                var versionResult = await versionCmd.ExecuteScalarAsync(cancellationToken);
+                version = Convert.ToInt64(versionResult);
+            }
+
+            // Process entities in batches
+            var processedCount = 0;
+            for (var i = 0; i < totalCount; i += options.BatchSize)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var batch = entityList.Skip(i).Take(options.BatchSize).ToList();
+
+                foreach (var entity in batch)
+                {
+                    try
+                    {
+                        // Validate entity if requested
+                        if (options.ValidateBeforeImport && entity == null)
+                        {
+                            result.FailureCount++;
+                            result.Errors.Add($"Entity at index {processedCount} is null");
+                            processedCount++;
+                            continue;
+                        }
+
+                        // Check for duplicates if needed
+                        if (!options.IgnoreDuplicates || options.UpdateExisting)
+                        {
+                            var checkSql = $@"
+                                SELECT COUNT(*)
+                                FROM {this.tableName}
+                                WHERE {this.Mapper.GetPrimaryKeyColumn()} = @key
+                                  AND IsDeleted = 0";
+
+                            using var checkCmd = new SQLiteCommand(checkSql, connection);
+                            checkCmd.Parameters.AddWithValue("@key", this.Mapper.SerializeKey(entity.Id));
+                            var exists = Convert.ToInt64(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+
+                            if (exists)
+                            {
+                                if (options.UpdateExisting)
+                                {
+                                    // Update existing entity with new version
+                                    entity.Version = version;
+                                    entity.LastWriteTime = DateTimeOffset.UtcNow;
+
+                                    using var updateCmd = this.Mapper.CreateCommand(DbOperationType.Insert, entity.Id, entity, null);
+                                    updateCmd.Connection = connection;
+                                    await updateCmd.ExecuteNonQueryAsync(cancellationToken);
+                                    result.SuccessCount++;
+                                }
+                                else if (!options.IgnoreDuplicates)
+                                {
+                                    result.DuplicateCount++;
+                                    result.Errors.Add($"Duplicate key found: {entity.Id}");
+                                }
+                                else
+                                {
+                                    result.DuplicateCount++;
+                                }
+                                processedCount++;
+                                continue;
+                            }
+                        }
+
+                        // Insert new entity
+                        entity.Version = version;
+                        entity.CreatedTime = DateTimeOffset.UtcNow;
+                        entity.LastWriteTime = DateTimeOffset.UtcNow;
+                        entity.IsDeleted = false;
+
+                        using var insertCmd = this.Mapper.CreateCommand(DbOperationType.Insert, entity.Id, entity, null);
+                        insertCmd.Connection = connection;
+                        await insertCmd.ExecuteNonQueryAsync(cancellationToken);
+
+                        result.SuccessCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        result.FailureCount++;
+                        result.Errors.Add($"Error importing entity {entity.Id}: {ex.Message}");
+                    }
+
+                    processedCount++;
+
+                    // Report progress
+                    if (progress != null && processedCount % 100 == 0)
+                    {
+                        progress.Report(new BulkOperationProgress
+                        {
+                            ProcessedCount = processedCount,
+                            TotalCount = totalCount,
+                            ElapsedTime = DateTime.UtcNow - startTime,
+                            CurrentOperation = $"Importing entities ({processedCount}/{totalCount})"
+                        });
+                    }
+                }
+            }
+
+            // Final progress report
+            if (progress != null)
+            {
+                progress.Report(new BulkOperationProgress
+                {
+                    ProcessedCount = processedCount,
+                    TotalCount = totalCount,
+                    ElapsedTime = DateTime.UtcNow - startTime,
+                    CurrentOperation = "Import completed"
+                });
+            }
+
+            result.Duration = DateTime.UtcNow - startTime;
+            return result;
         }
 
-        public Task<BulkExportResult<T>> BulkExportAsync(Expression<Func<T, bool>> predicate = null, BulkExportOptions options = null, IProgress<BulkOperationProgress> progress = null, CancellationToken cancellationToken = default)
+        public async Task<BulkExportResult<T>> BulkExportAsync(Expression<Func<T, bool>> predicate = null, BulkExportOptions options = null, IProgress<BulkOperationProgress> progress = null, CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            options ??= new BulkExportOptions();
+            var startTime = DateTime.UtcNow;
+            var exportedEntities = new List<T>();
+
+            using var connection = new SQLiteConnection(this.connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            // Build WHERE clause
+            var whereClause = "1=1"; // Default condition
+            var parameters = new Dictionary<string, object>();
+
+            if (predicate != null)
+            {
+                var translator = new Mappings.SQLiteExpressionTranslator<T>(
+                    this.Mapper.GetPropertyMappings(),
+                    () => this.Mapper.GetPrimaryKeyColumn());
+                var translationResult = translator.Translate(predicate);
+                whereClause = translationResult.Sql;
+                parameters = translationResult.Parameters;
+            }
+
+            // Add IsDeleted condition based on options
+            if (!options.IncludeDeleted)
+            {
+                whereClause = $"({whereClause}) AND IsDeleted = 0";
+            }
+
+            // First, get total count for progress reporting
+            long totalCount = 0;
+            if (progress != null)
+            {
+                var countSql = $@"
+                    WITH LatestVersions AS (
+                        SELECT {this.Mapper.GetPrimaryKeyColumn()}, MAX(Version) as MaxVersion
+                        FROM {this.tableName}
+                        WHERE {whereClause}
+                        GROUP BY {this.Mapper.GetPrimaryKeyColumn()}
+                    )
+                    SELECT COUNT(*) FROM LatestVersions";
+
+                using var countCmd = new SQLiteCommand(countSql, connection);
+                foreach (var param in parameters)
+                {
+                    countCmd.Parameters.AddWithValue($"@{param.Key}", param.Value ?? DBNull.Value);
+                }
+                totalCount = Convert.ToInt64(await countCmd.ExecuteScalarAsync(cancellationToken));
+            }
+
+            // Build the main export query - get latest version of each entity
+            var sql = $@"
+                WITH LatestVersions AS (
+                    SELECT *, ROW_NUMBER() OVER (PARTITION BY {this.Mapper.GetPrimaryKeyColumn()} ORDER BY Version DESC) as rn
+                    FROM {this.tableName}
+                    WHERE {whereClause}
+                )
+                SELECT {string.Join(", ", this.Mapper.GetSelectColumns().Select(c => $"lv.{c}"))}
+                FROM LatestVersions lv
+                WHERE lv.rn = 1
+                ORDER BY lv.{this.Mapper.GetPrimaryKeyColumn()}";
+
+            using var command = new SQLiteCommand(sql, connection);
+
+            // Add parameters
+            foreach (var param in parameters)
+            {
+                command.Parameters.AddWithValue($"@{param.Key}", param.Value ?? DBNull.Value);
+            }
+
+            using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+            var processedCount = 0;
+            var batch = new List<T>();
+
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var entity = this.Mapper.MapFromReader(reader);
+                if (entity != null)
+                {
+                    batch.Add(entity);
+                    processedCount++;
+
+                    // Process in batches to manage memory
+                    if (batch.Count >= options.BatchSize)
+                    {
+                        exportedEntities.AddRange(batch);
+                        batch.Clear();
+
+                        // Report progress
+                        if (progress != null)
+                        {
+                            progress.Report(new BulkOperationProgress
+                            {
+                                ProcessedCount = processedCount,
+                                TotalCount = totalCount,
+                                ElapsedTime = DateTime.UtcNow - startTime,
+                                CurrentOperation = $"Exporting entities ({processedCount}/{totalCount})"
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Add remaining entities
+            if (batch.Count > 0)
+            {
+                exportedEntities.AddRange(batch);
+            }
+
+            // Final progress report
+            if (progress != null)
+            {
+                progress.Report(new BulkOperationProgress
+                {
+                    ProcessedCount = processedCount,
+                    TotalCount = totalCount,
+                    ElapsedTime = DateTime.UtcNow - startTime,
+                    CurrentOperation = "Export completed"
+                });
+            }
+
+            return new BulkExportResult<T>
+            {
+                ExportedEntities = exportedEntities,
+                ExportedCount = exportedEntities.Count,
+                Duration = DateTime.UtcNow - startTime
+            };
         }
 
         #endregion

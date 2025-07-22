@@ -9,8 +9,10 @@ namespace SQLite.Lib.Mappings
     using System;
     using System.Collections;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Linq.Expressions;
     using System.Text;
+    using SQLite.Lib.Contracts;
 
     /// <summary>
     /// Translates LINQ Expression trees to SQL WHERE clauses.
@@ -19,7 +21,21 @@ namespace SQLite.Lib.Mappings
     {
         private readonly StringBuilder sql = new StringBuilder();
         private readonly Dictionary<string, object> parameters = new Dictionary<string, object>();
+        private readonly IReadOnlyDictionary<System.Reflection.PropertyInfo, PropertyMapping> propertyMappings;
+        private readonly Func<string> getPrimaryKeyColumn;
         private int parameterIndex = 0;
+
+        public SQLiteExpressionTranslator() : this(null, null)
+        {
+        }
+
+        public SQLiteExpressionTranslator(
+            IReadOnlyDictionary<System.Reflection.PropertyInfo, PropertyMapping> propertyMappings,
+            Func<string> getPrimaryKeyColumn)
+        {
+            this.propertyMappings = propertyMappings;
+            this.getPrimaryKeyColumn = getPrimaryKeyColumn;
+        }
 
         public class TranslationResult
         {
@@ -29,12 +45,35 @@ namespace SQLite.Lib.Mappings
 
         public TranslationResult Translate(Expression<Func<T, bool>> expression)
         {
+            this.sql.Clear();
             this.Visit(expression.Body);
             return new TranslationResult
             {
                 Sql = this.sql.ToString(),
                 Parameters = this.parameters
             };
+        }
+
+        public string TranslateOrderBy(Expression<Func<T, IComparable>> orderBy, bool ascending = true)
+        {
+            if (orderBy == null)
+                return string.Empty;
+
+            // Extract the property name from the orderBy expression
+            var memberExpression = orderBy.Body as MemberExpression;
+            if (memberExpression == null && orderBy.Body is UnaryExpression unaryExpression)
+            {
+                memberExpression = unaryExpression.Operand as MemberExpression;
+            }
+
+            if (memberExpression != null)
+            {
+                var propertyName = memberExpression.Member.Name;
+                var columnName = this.GetColumnNameFromMapper(propertyName);
+                return $"{columnName} {(ascending ? "ASC" : "DESC")}";
+            }
+
+            return string.Empty;
         }
 
         protected override Expression VisitBinary(BinaryExpression node)
@@ -165,8 +204,24 @@ namespace SQLite.Lib.Mappings
 
         private string GetColumnName(string propertyName)
         {
-            // Map property names to column names
-            // In a real implementation, this would use the entity mapper
+            return this.GetColumnNameFromMapper(propertyName);
+        }
+
+        private string GetColumnNameFromMapper(string propertyName)
+        {
+            // If property mappings are available, use them to get the correct column name
+            if (this.propertyMappings != null)
+            {
+                var propertyMapping = this.propertyMappings
+                    .FirstOrDefault(p => p.Key.Name == propertyName);
+                
+                if (propertyMapping.Value != null)
+                {
+                    return propertyMapping.Value.ColumnName;
+                }
+            }
+
+            // Fallback to property name mappings
             return propertyName switch
             {
                 "Id" => this.GetPrimaryKeyColumn(),
@@ -177,7 +232,13 @@ namespace SQLite.Lib.Mappings
 
         private string GetPrimaryKeyColumn()
         {
-            // This would be determined by the mapper
+            // If getPrimaryKeyColumn delegate is available, use it
+            if (this.getPrimaryKeyColumn != null)
+            {
+                return this.getPrimaryKeyColumn();
+            }
+
+            // Fallback to type-based determination
             var type = typeof(T);
             if (type.Name == "UpdateEntity") return "UpdateId";
             if (type.Name == "CacheEntry") return "CacheKey";

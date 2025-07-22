@@ -39,7 +39,9 @@ namespace SQLite.Lib
             this.mapper = new CacheEntryMapper<T>();
             this.persistenceProvider = new SQLitePersistenceProvider<CacheEntry<T>, string>(
                 connectionString,
-                this.mapper);
+                this.mapper,
+                new VersionMapper(),
+                new EntryListMappingMapper());
         }
 
         /// <summary>

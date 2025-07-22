@@ -11,6 +11,8 @@ namespace SQLite.Lib.Contracts
     using System.Data;
     using System.Data.SQLite;
     using System.Linq.Expressions;
+    using System.Reflection;
+    using SQLite.Lib.Mappings;
 
     /// <summary>
     /// Defines the contract for mapping entities to SQLite tables.
@@ -20,6 +22,7 @@ namespace SQLite.Lib.Contracts
         where TKey : IEquatable<TKey>
     {
         string GetTableName();
+        IReadOnlyDictionary<PropertyInfo, PropertyMapping> GetPropertyMappings();
         string GetPrimaryKeyColumn();
         List<string> GetSelectColumns();
         List<string> GetInsertColumns();

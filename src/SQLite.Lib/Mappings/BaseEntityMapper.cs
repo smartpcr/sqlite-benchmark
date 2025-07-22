@@ -91,9 +91,19 @@ namespace SQLite.Lib.Mappings
 
         /// <summary>
         /// Gets the primary key column name.
+        /// When PK is composite, return PK column not Version.
+        /// When PK is single, return the primary key column name.
         /// </summary>
         public string GetPrimaryKeyColumn()
         {
+            if (this.hasCompositeKey)
+            {
+                // For composite keys, return the first primary key column that is not "Version"
+                return this.compositeKeyProperties
+                    .Select(p => this.propertyMappings[p].ColumnName)
+                    .FirstOrDefault(c => !c.Equals("Version", StringComparison.OrdinalIgnoreCase));
+            }
+
             return this.propertyMappings.FirstOrDefault(m => m.Value.IsPrimaryKey).Value?.ColumnName;
         }
 
@@ -118,6 +128,7 @@ namespace SQLite.Lib.Mappings
             {
                 throw new InvalidOperationException("Entity has single primary key. Use GetPrimaryKeyMapping() instead.");
             }
+
             return this.compositeKeyProperties.Select(p => this.propertyMappings[p]);
         }
 
