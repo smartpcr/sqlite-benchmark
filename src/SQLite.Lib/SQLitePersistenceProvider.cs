@@ -14,7 +14,6 @@ namespace SQLite.Lib
     using System.Threading;
     using System.Threading.Tasks;
     using SQLite.Lib.Contracts;
-    using SQLite.Lib.Serialization;
 
     /// <summary>
     /// SQLite implementation of IPersistenceProvider that translates CRUD operations to SQL.
@@ -591,6 +590,55 @@ namespace SQLite.Lib
                 // If serialization fails, return 0
                 return 0;
             }
+        }
+
+        #endregion
+
+        #region Command Creation Operations
+
+        /// <summary>
+        /// Creates a SELECT command for retrieving an entity.
+        /// </summary>
+        public SQLiteCommand CreateSelectCommand(TKey key, long version)
+        {
+            // Create a dummy entity to use with the mapper
+            var entity = Activator.CreateInstance<T>();
+            entity.Id = key;
+            entity.Version = version;
+
+            // Use the mapper to create the command
+            return this.mapper.CreateCommand(DbOperationType.Select, entity, null);
+        }
+
+        /// <summary>
+        /// Creates an INSERT command for adding a new entity.
+        /// </summary>
+        public SQLiteCommand CreateInsertCommand(T entity)
+        {
+            // Use the mapper to create the command
+            return this.mapper.CreateCommand(DbOperationType.Insert, entity, null);
+        }
+
+        /// <summary>
+        /// Creates an UPDATE command for modifying an existing entity.
+        /// </summary>
+        public SQLiteCommand CreateUpdateCommand(T fromEntity, T toEntity)
+        {
+            // Use the mapper to create the command
+            return this.mapper.CreateCommand(DbOperationType.Update, fromEntity, toEntity);
+        }
+
+        /// <summary>
+        /// Creates a DELETE command for removing an entity.
+        /// </summary>
+        public SQLiteCommand CreateDeleteCommand(TKey key)
+        {
+            // Create a dummy entity to use with the mapper
+            var entity = Activator.CreateInstance<T>();
+            entity.Id = key;
+
+            // Use the mapper to create the command
+            return this.mapper.CreateCommand(DbOperationType.Delete, entity, null);
         }
 
         #endregion

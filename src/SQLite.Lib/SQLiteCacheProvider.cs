@@ -12,7 +12,6 @@ namespace SQLite.Lib
     using System.Threading;
     using System.Threading.Tasks;
     using SQLite.Lib.Contracts;
-    using SQLite.Lib.Mappings;
     using SQLite.Lib.Models;
 
     /// <summary>
@@ -24,7 +23,7 @@ namespace SQLite.Lib
         private readonly SQLitePersistenceProvider<CacheEntry<T>, string> persistenceProvider;
         private readonly string connectionString;
         private readonly string tableName;
-        private readonly CacheEntryMapper<T> mapper;
+        private readonly ISQLiteEntityMapper<CacheEntry<T>, string> mapper;
         private readonly TimeSpan defaultExpiration;
 
         public SQLiteCacheProvider(

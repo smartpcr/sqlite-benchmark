@@ -183,6 +183,40 @@ namespace SQLite.Lib.Contracts
 
         #endregion
 
+        #region Command Creation Operations
+
+        /// <summary>
+        /// Creates a SELECT command for retrieving an entity.
+        /// </summary>
+        /// <param name="key">The primary key</param>
+        /// <param name="version">The version to retrieve</param>
+        /// <returns>The SQL command configured for SELECT operation</returns>
+        System.Data.SQLite.SQLiteCommand CreateSelectCommand(TKey key, long version);
+
+        /// <summary>
+        /// Creates an INSERT command for adding a new entity.
+        /// </summary>
+        /// <param name="entity">The entity to insert</param>
+        /// <returns>The SQL command configured for INSERT operation</returns>
+        System.Data.SQLite.SQLiteCommand CreateInsertCommand(T entity);
+
+        /// <summary>
+        /// Creates an UPDATE command for modifying an existing entity.
+        /// </summary>
+        /// <param name="fromEntity">The current state of the entity</param>
+        /// <param name="toEntity">The desired state of the entity</param>
+        /// <returns>The SQL command configured for UPDATE operation</returns>
+        System.Data.SQLite.SQLiteCommand CreateUpdateCommand(T fromEntity, T toEntity);
+
+        /// <summary>
+        /// Creates a DELETE command for removing an entity.
+        /// </summary>
+        /// <param name="key">The primary key of the entity to delete</param>
+        /// <returns>The SQL command configured for DELETE operation</returns>
+        System.Data.SQLite.SQLiteCommand CreateDeleteCommand(TKey key);
+
+        #endregion
+
         #region Transaction Operations
 
         /// <summary>

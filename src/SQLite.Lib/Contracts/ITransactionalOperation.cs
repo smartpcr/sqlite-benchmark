@@ -6,7 +6,7 @@
 
 namespace SQLite.Lib.Contracts
 {
-    using System.Data.SqlClient;
+    using System.Data.SQLite;
 
     /// <summary>
     /// Defines a transactional operation that can be committed or rolled back.
@@ -26,8 +26,8 @@ namespace SQLite.Lib.Contracts
 
         SqlExecMode ExecMode { get; }
 
-        SqlCommand CommitCommand { get; }
+        SQLiteCommand CommitCommand { get; }
 
-        SqlCommand RollbackCommand { get; }
+        SQLiteCommand RollbackCommand { get; }
     }
 }

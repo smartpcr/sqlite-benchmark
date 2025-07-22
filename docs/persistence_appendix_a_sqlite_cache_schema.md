@@ -84,6 +84,82 @@ CREATE TABLE IF NOT EXISTS CacheEntity (
 );
 ```
 
+### UpdateEntity Table
+```sql
+CREATE TABLE IF NOT EXISTS UpdateEntity (
+    CacheKey TEXT NOT NULL,
+    Version INTEGER NOT NULL,
+    CreatedTime TEXT NOT NULL DEFAULT (datetime('now')),
+    LastWriteTime TEXT NOT NULL DEFAULT (datetime('now')),
+    IsDeleted INTEGER NOT NULL DEFAULT 0,
+    DisplayName TEXT NOT NULL,
+    UpdateVersion TEXT NOT NULL,
+    SbeVersion TEXT,
+    Description TEXT,
+    State TEXT NOT NULL,
+    Publisher TEXT,
+    InstalledDate TEXT,
+    KbLink TEXT,
+    ReleaseLink TEXT,
+    MinVersionRequired TEXT,
+    MinSbeVersionRequired TEXT,
+    PackagePath TEXT,
+    PackageSizeInMb INTEGER NOT NULL,
+    PackageType TEXT,
+    DeliveryType TEXT,
+    RebootRequired TEXT,
+    InstallType TEXT,
+    AvailabilityType TEXT,
+    HealthState TEXT,
+    HealthCheckDate TEXT,
+    IsRecalled INTEGER NOT NULL DEFAULT 0,
+    OemFamily TEXT,
+    Prerequisites TEXT,
+    AdditionalProperties TEXT,
+    BillOfMaterials TEXT,
+    HealthCheckResult TEXT,
+    UpdateStateProperties TEXT,
+    DeferScanAndDownload INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (CacheKey, Version),
+    CONSTRAINT FK_UpdateEntity_Version FOREIGN KEY (Version) REFERENCES Version(Version) ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+```
+
+### UpdateRunEntity Table
+```sql
+CREATE TABLE IF NOT EXISTS UpdateRunEntity (
+    CacheKey TEXT NOT NULL,
+    Version INTEGER NOT NULL,
+    CreatedTime TEXT NOT NULL DEFAULT (datetime('now')),
+    LastWriteTime TEXT NOT NULL DEFAULT (datetime('now')),
+    IsDeleted INTEGER NOT NULL DEFAULT 0,
+    Name TEXT NOT NULL,
+    ResourceId TEXT NOT NULL,
+    ParentId TEXT,
+    ResourceType TEXT NOT NULL,
+    TimeStarted TEXT,
+    LastUpdatedTime TEXT,
+    Duration INTEGER NOT NULL,
+    State TEXT NOT NULL,
+    OnCompleteActionSuccess INTEGER NOT NULL DEFAULT 0,
+    PreparationDownloadPercentage INTEGER NOT NULL DEFAULT 0,
+    IsPreparationRun INTEGER NOT NULL DEFAULT 0,
+    Progress TEXT,
+    ProgressStatus TEXT,
+    ProgressDescription TEXT,
+    CurrentStepName TEXT,
+    TotalSteps INTEGER NOT NULL DEFAULT 0,
+    CompletedSteps INTEGER NOT NULL DEFAULT 0,
+    ErrorMessage TEXT,
+    UpdateName TEXT,
+    UpdateVersion TEXT,
+    ActionPlanId TEXT,
+    ActionPlanInstanceId TEXT,
+    PRIMARY KEY (CacheKey, Version),
+    CONSTRAINT FK_UpdateRunEntity_Version FOREIGN KEY (Version) REFERENCES Version(Version) ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+```
+
 ### CacheStatistics Table
 ```sql
 CREATE TABLE IF NOT EXISTS CacheStatistics (
@@ -130,6 +206,18 @@ CREATE INDEX IF NOT EXISTS IX_CacheUpdateHistory_CacheKey ON CacheUpdateHistory(
 CREATE INDEX IF NOT EXISTS IX_CacheUpdateHistory_Version ON CacheUpdateHistory(Version);
 CREATE INDEX IF NOT EXISTS IX_CacheAccessHistory_CacheKey ON CacheAccessHistory(CacheKey);
 CREATE INDEX IF NOT EXISTS IX_CacheStatistics_TypeName_StatDate ON CacheStatistics(TypeName, StatDate);
+CREATE INDEX IF NOT EXISTS IX_UpdateEntity_Key ON UpdateEntity(CacheKey);
+CREATE INDEX IF NOT EXISTS IX_UpdateEntity_LastWriteTime ON UpdateEntity(LastWriteTime);
+CREATE INDEX IF NOT EXISTS IX_UpdateEntity_Version ON UpdateEntity(Version);
+CREATE INDEX IF NOT EXISTS IX_UpdateEntity_UpdateVersion ON UpdateEntity(UpdateVersion);
+CREATE INDEX IF NOT EXISTS IX_UpdateEntity_State ON UpdateEntity(State);
+CREATE INDEX IF NOT EXISTS IX_UpdateRunEntity_Key ON UpdateRunEntity(CacheKey);
+CREATE INDEX IF NOT EXISTS IX_UpdateRunEntity_LastWriteTime ON UpdateRunEntity(LastWriteTime);
+CREATE INDEX IF NOT EXISTS IX_UpdateRunEntity_Version ON UpdateRunEntity(Version);
+CREATE INDEX IF NOT EXISTS IX_UpdateRunEntity_Name ON UpdateRunEntity(Name);
+CREATE INDEX IF NOT EXISTS IX_UpdateRunEntity_TimeStarted ON UpdateRunEntity(TimeStarted);
+CREATE INDEX IF NOT EXISTS IX_UpdateRunEntity_State ON UpdateRunEntity(State);
+CREATE INDEX IF NOT EXISTS IX_UpdateRunEntity_UpdateName ON UpdateRunEntity(UpdateName);
 ```
 
 ## A.5 CacheEntry<T> Storage Details

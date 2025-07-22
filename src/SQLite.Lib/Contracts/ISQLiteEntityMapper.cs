@@ -4,13 +4,12 @@
 // </copyright>
 // -----------------------------------------------------------------------
 
-namespace SQLite.Lib
+namespace SQLite.Lib.Contracts
 {
     using System;
     using System.Collections.Generic;
     using System.Data;
     using System.Data.SQLite;
-    using SQLite.Lib.Contracts;
 
     /// <summary>
     /// Defines the contract for mapping entities to SQLite tables.
@@ -26,8 +25,11 @@ namespace SQLite.Lib
         List<string> GetUpdateColumns();
         void AddParameters(SQLiteCommand command, T entity);
         T MapFromReader(IDataReader reader);
+        string GenerateCreateTableSql(bool includeIfNotExists = true);
+        IEnumerable<string> GenerateCreateIndexSql();
         byte[] SerializeEntity(T entity);
         string SerializeKey(TKey key);
         TKey DeserializeKey(string serialized);
+        SQLiteCommand CreateCommand(DbOperationType operationType, T fromValue, T toValue);
     }
 }

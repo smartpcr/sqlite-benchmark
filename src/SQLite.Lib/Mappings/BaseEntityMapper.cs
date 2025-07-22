@@ -1,4 +1,4 @@
-﻿// -----------------------------------------------------------------------
+// -----------------------------------------------------------------------
 // <copyright file="BaseEntityMapper.cs" company="Microsoft Corp.">
 //     Copyright (c) Microsoft Corp. All rights reserved.
 // </copyright>
@@ -23,6 +23,8 @@ namespace SQLite.Lib.Mappings
     /// <typeparam name="TKey">The key type.</typeparam>
     public class BaseEntityMapper<T, TKey> : ISQLiteEntityMapper<T, TKey> where T : class, IEntity<TKey> where TKey : IEquatable<TKey>
     {
+        #region Private Fields
+
         private readonly Type entityType;
         private readonly string tableName;
         private readonly string schemaName;
@@ -33,6 +35,10 @@ namespace SQLite.Lib.Mappings
         private bool hasCompositeKey;
         private readonly List<PropertyInfo> compositeKeyProperties;
         private readonly ISerializer<T> serializer;
+
+        #endregion
+
+        #region Constructor
 
         public BaseEntityMapper()
         {
@@ -59,6 +65,10 @@ namespace SQLite.Lib.Mappings
             }
         }
 
+        #endregion
+
+        #region Public Methods - Table Information
+
         /// <summary>
         /// Gets the fully qualified table name including schema.
         /// </summary>
@@ -69,15 +79,22 @@ namespace SQLite.Lib.Mappings
         /// </summary>
         public virtual string GetTableName() => this.tableName;
 
-        public string GetPrimaryKeyColumn()
-        {
-            return this.propertyMappings.FirstOrDefault(m => m.Value.IsPrimaryKey).Value?.ColumnName;
-        }
+        #endregion
+
+        #region Public Methods - Mapping Information
 
         /// <summary>
         /// Gets all property mappings.
         /// </summary>
         public IReadOnlyDictionary<PropertyInfo, PropertyMapping> GetPropertyMappings() => this.propertyMappings;
+
+        /// <summary>
+        /// Gets the primary key column name.
+        /// </summary>
+        public string GetPrimaryKeyColumn()
+        {
+            return this.propertyMappings.FirstOrDefault(m => m.Value.IsPrimaryKey).Value?.ColumnName;
+        }
 
         /// <summary>
         /// Gets the primary key property mapping.
@@ -102,6 +119,10 @@ namespace SQLite.Lib.Mappings
             }
             return this.compositeKeyProperties.Select(p => this.propertyMappings[p]);
         }
+
+        #endregion
+
+        #region Public Methods - SQL Generation
 
         /// <summary>
         /// Generates CREATE TABLE SQL statement for the entity.
@@ -172,500 +193,9 @@ namespace SQLite.Lib.Mappings
             return indexSql;
         }
 
-        private void BuildPropertyMappings()
-        {
-            var properties = this.entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
-            var indexGroups = new Dictionary<string, List<IndexColumn>>();
-            var foreignKeyGroups = new Dictionary<string, List<(PropertyInfo Property, ForeignKeyAttribute Attribute, string ColumnName)>>();
+        #endregion
 
-            foreach (var property in properties)
-            {
-                // Check if property should be excluded
-                if (property.GetCustomAttribute<NotMappedAttribute>() != null)
-                {
-                    continue;
-                }
-
-                // Create property mapping
-                var mapping = this.CreatePropertyMapping(property);
-                this.propertyMappings[property] = mapping;
-
-                // Check if this is a primary key
-                var pkAttr = property.GetCustomAttribute<PrimaryKeyAttribute>();
-                if (pkAttr != null)
-                {
-                    if (pkAttr.IsComposite)
-                    {
-                        this.hasCompositeKey = true;
-                        this.compositeKeyProperties.Add(property);
-                    }
-                    else
-                    {
-                        this.primaryKeyProperty = property;
-                    }
-                }
-                else if (this.primaryKeyProperty == null && !this.hasCompositeKey &&
-                         (property.Name == "Id" || property.Name == "Key"))
-                {
-                    // Convention-based primary key
-                    this.primaryKeyProperty = property;
-                    mapping.IsPrimaryKey = true;
-                }
-
-                // Process indexes
-                var indexAttrs = property.GetCustomAttributes<IndexAttribute>();
-                foreach (var indexAttr in indexAttrs)
-                {
-                    var indexName = indexAttr.Name ?? $"IX_{this.tableName}_{mapping.ColumnName}";
-
-                    if (!indexGroups.ContainsKey(indexName))
-                    {
-                        indexGroups[indexName] = new List<IndexColumn>();
-                    }
-
-                    indexGroups[indexName].Add(new IndexColumn
-                    {
-                        ColumnName = mapping.ColumnName,
-                        Order = indexAttr.Order,
-                        IsIncluded = indexAttr.IsIncluded
-                    });
-                }
-
-                // Process foreign keys
-                var fkAttr = property.GetCustomAttribute<ForeignKeyAttribute>();
-                if (fkAttr != null)
-                {
-                    var constraintName = fkAttr.Name ?? $"FK_{this.tableName}_{property.Name}";
-
-                    if (!foreignKeyGroups.ContainsKey(constraintName))
-                    {
-                        foreignKeyGroups[constraintName] = new List<(PropertyInfo, ForeignKeyAttribute, string)>();
-                    }
-
-                    foreignKeyGroups[constraintName].Add((property, fkAttr, mapping.ColumnName));
-                }
-            }
-
-            // Build foreign key definitions from grouped columns
-            foreach (var fkGroup in foreignKeyGroups)
-            {
-                var orderedItems = fkGroup.Value.OrderBy(x => x.Attribute.Ordinal).ToList();
-                var firstAttr = orderedItems.First().Attribute;
-
-                if (orderedItems.Count > 1)
-                {
-                    // Composite foreign key - validate all attributes have same table and actions
-                    var allSameTable = orderedItems.All(x => x.Attribute.ReferencedTable == firstAttr.ReferencedTable);
-                    var allSameDelete = orderedItems.All(x => x.Attribute.OnDelete == firstAttr.OnDelete);
-                    var allSameUpdate = orderedItems.All(x => x.Attribute.OnUpdate == firstAttr.OnUpdate);
-
-                    if (!allSameTable || !allSameDelete || !allSameUpdate)
-                    {
-                        throw new InvalidOperationException(
-                            $"Composite foreign key '{fkGroup.Key}' has inconsistent attributes. " +
-                            "All properties must reference the same table and have the same ON DELETE/UPDATE actions.");
-                    }
-
-                    // Build arrays of columns and referenced columns in ordinal order
-                    var columns = orderedItems.Select(x => x.ColumnName).ToArray();
-                    var referencedColumns = orderedItems.Select(x => x.Attribute.ReferencedColumn).ToArray();
-
-                    this.foreignKeys.Add(new ForeignKeyDefinition
-                    {
-                        ConstraintName = fkGroup.Key,
-                        ColumnNames = columns,
-                        ReferencedTable = firstAttr.ReferencedTable,
-                        ReferencedColumns = referencedColumns,
-                        OnDelete = firstAttr.OnDelete,
-                        OnUpdate = firstAttr.OnUpdate
-                    });
-                }
-                else
-                {
-                    // Single column foreign key
-                    var item = orderedItems.First();
-                    this.foreignKeys.Add(new ForeignKeyDefinition
-                    {
-                        ConstraintName = fkGroup.Key,
-                        ColumnName = item.ColumnName,
-                        ReferencedTable = item.Attribute.ReferencedTable,
-                        ReferencedColumn = item.Attribute.ReferencedColumn,
-                        OnDelete = item.Attribute.OnDelete,
-                        OnUpdate = item.Attribute.OnUpdate
-                    });
-                }
-            }
-
-            // Build index definitions from grouped columns
-            foreach (var group in indexGroups)
-            {
-                var firstColumn = group.Value.First();
-                var firstIndexAttr = properties
-                    .SelectMany(p => p.GetCustomAttributes<IndexAttribute>()
-                        .Where(a => (a.Name ?? $"IX_{this.tableName}_{this.propertyMappings[p].ColumnName}") == group.Key))
-                    .First();
-
-                this.indexes.Add(new IndexDefinition
-                {
-                    Name = group.Key,
-                    Columns = group.Value,
-                    IsUnique = firstIndexAttr.IsUnique,
-                    IsClustered = firstIndexAttr.IsClustered,
-                    Filter = firstIndexAttr.Filter
-                });
-            }
-        }
-
-        private PropertyMapping CreatePropertyMapping(PropertyInfo property)
-        {
-            var mapping = new PropertyMapping
-            {
-                PropertyInfo = property,
-                PropertyName = property.Name,
-                PropertyType = property.PropertyType,
-                IsNotMapped = false
-            };
-
-            // Get column attribute
-            var columnAttr = property.GetCustomAttribute<ColumnAttribute>();
-
-            // Column name
-            mapping.ColumnName = columnAttr?.Name ?? property.Name;
-
-            // Data type
-            if (columnAttr?.SQLiteType != null)
-            {
-                mapping.SQLiteType = columnAttr.SQLiteType.Value;
-                mapping.Size = columnAttr.Size;
-            }
-            else if (columnAttr?.SqlType != null)
-            {
-                mapping.SqlType = columnAttr.SqlType.Value;
-                mapping.Size = columnAttr.Size;
-                mapping.Precision = columnAttr.Precision;
-                mapping.Scale = columnAttr.Scale;
-            }
-            else
-            {
-                // Infer SQL type from property type
-                this.InferSqlType(property.PropertyType, mapping);
-            }
-
-            // Nullability - Use NotNull property (inverted logic)
-            mapping.IsNullable = columnAttr != null ? !columnAttr.NotNull : this.IsNullableType(property.PropertyType);
-
-            // Default value
-            mapping.DefaultValue = columnAttr?.DefaultValue;
-            mapping.DefaultConstraintName = columnAttr?.DefaultConstraintName;
-
-            // Check constraint
-            var checkAttr = property.GetCustomAttribute<CheckAttribute>();
-            if (checkAttr != null)
-            {
-                mapping.CheckConstraint = checkAttr.Expression;
-                mapping.CheckConstraintName = checkAttr.Name ?? $"CK_{this.tableName}_{mapping.ColumnName}";
-            }
-
-            // Computed column
-            var computedAttr = property.GetCustomAttribute<ComputedAttribute>();
-            if (computedAttr != null)
-            {
-                mapping.IsComputed = true;
-                mapping.ComputedExpression = computedAttr.Expression;
-                mapping.IsPersisted = computedAttr.IsPersisted;
-            }
-
-            // Audit fields
-            var auditAttr = property.GetCustomAttribute<AuditFieldAttribute>();
-            if (auditAttr != null)
-            {
-                mapping.IsAuditField = true;
-                mapping.AuditFieldType = auditAttr.FieldType;
-            }
-
-            // Primary key
-            var pkAttr = property.GetCustomAttribute<PrimaryKeyAttribute>();
-            if (pkAttr != null)
-            {
-                mapping.IsPrimaryKey = true;
-                mapping.IsAutoIncrement = pkAttr.IsAutoIncrement;
-                mapping.SequenceName = pkAttr.SequenceName;
-            }
-
-            // Unique constraint
-            var uniqueAttr = property.GetCustomAttribute<UniqueAttribute>();
-            if (uniqueAttr != null)
-            {
-                mapping.IsUnique = true;
-                mapping.UniqueConstraintName = uniqueAttr.Name ?? $"UQ_{this.tableName}_{mapping.ColumnName}";
-            }
-
-            return mapping;
-        }
-
-        private void InferSqlType(Type clrType, PropertyMapping mapping)
-        {
-            var underlyingType = Nullable.GetUnderlyingType(clrType) ?? clrType;
-
-            if (underlyingType == typeof(string))
-            {
-                mapping.SqlType = SqlDbType.NVarChar;
-                mapping.Size = 255; // Default size
-            }
-            else if (underlyingType == typeof(int))
-            {
-                mapping.SqlType = SqlDbType.Int;
-            }
-            else if (underlyingType == typeof(long))
-            {
-                mapping.SqlType = SqlDbType.BigInt;
-            }
-            else if (underlyingType == typeof(short))
-            {
-                mapping.SqlType = SqlDbType.SmallInt;
-            }
-            else if (underlyingType == typeof(byte))
-            {
-                mapping.SqlType = SqlDbType.TinyInt;
-            }
-            else if (underlyingType == typeof(bool))
-            {
-                mapping.SqlType = SqlDbType.Bit;
-            }
-            else if (underlyingType == typeof(decimal))
-            {
-                mapping.SqlType = SqlDbType.Decimal;
-                mapping.Precision = 18;
-                mapping.Scale = 2;
-            }
-            else if (underlyingType == typeof(double))
-            {
-                mapping.SqlType = SqlDbType.Float;
-            }
-            else if (underlyingType == typeof(float))
-            {
-                mapping.SqlType = SqlDbType.Real;
-            }
-            else if (underlyingType == typeof(DateTime))
-            {
-                mapping.SqlType = SqlDbType.DateTime2;
-            }
-            else if (underlyingType == typeof(DateTimeOffset))
-            {
-                mapping.SqlType = SqlDbType.DateTimeOffset;
-            }
-            else if (underlyingType == typeof(TimeSpan))
-            {
-                mapping.SqlType = SqlDbType.Time;
-            }
-            else if (underlyingType == typeof(byte[]))
-            {
-                mapping.SqlType = SqlDbType.VarBinary;
-                mapping.Size = -1; // MAX
-            }
-            else if (underlyingType == typeof(Guid))
-            {
-                mapping.SqlType = SqlDbType.UniqueIdentifier;
-            }
-            else if (underlyingType.IsEnum)
-            {
-                mapping.SqlType = SqlDbType.Int; // Store enums as integers by default
-            }
-            else
-            {
-                // Default to NVARCHAR for complex types (will be serialized)
-                mapping.SqlType = SqlDbType.NVarChar;
-                mapping.Size = -1; // MAX
-            }
-        }
-
-        private bool IsNullableType(Type type)
-        {
-            return !type.IsValueType || Nullable.GetUnderlyingType(type) != null;
-        }
-
-        private string GenerateColumnDefinition(PropertyMapping mapping)
-        {
-            var sql = new StringBuilder();
-            sql.Append($"{mapping.ColumnName} ");
-
-            // Data type
-            sql.Append(this.GetSqlTypeString(mapping));
-
-            // Primary key with auto-increment
-            if (mapping.IsPrimaryKey && !this.hasCompositeKey)
-            {
-                sql.Append(" PRIMARY KEY");
-                if (mapping.IsAutoIncrement)
-                {
-                    sql.Append(" AUTOINCREMENT");
-                }
-            }
-
-            // Nullability
-            if (!mapping.IsNullable && !mapping.IsPrimaryKey)
-            {
-                sql.Append(" NOT NULL");
-            }
-
-            // Unique constraint
-            if (mapping.IsUnique && !mapping.IsPrimaryKey)
-            {
-                sql.Append(" UNIQUE");
-            }
-
-            // Default value
-            if (mapping.DefaultValue != null)
-            {
-                sql.Append($" DEFAULT {this.FormatDefaultValue(mapping.DefaultValue, mapping.SqlType)}");
-            }
-
-            // Check constraint
-            if (!string.IsNullOrEmpty(mapping.CheckConstraint))
-            {
-                sql.Append($" CHECK ({mapping.CheckConstraint})");
-            }
-
-            // Computed column
-            if (mapping.IsComputed && !string.IsNullOrEmpty(mapping.ComputedExpression))
-            {
-                sql.Append($" AS ({mapping.ComputedExpression})");
-                if (mapping.IsPersisted)
-                {
-                    sql.Append(" PERSISTED");
-                }
-            }
-
-            return sql.ToString();
-        }
-
-        private string GetSqlTypeString(PropertyMapping mapping)
-        {
-            // If SQLiteType is specified, use it directly
-            if (mapping.SQLiteType.HasValue)
-            {
-                switch (mapping.SQLiteType.Value)
-                {
-                    case SQLiteDbType.Integer:
-                        return "INTEGER";
-                    case SQLiteDbType.Real:
-                        return "REAL";
-                    case SQLiteDbType.Text:
-                        return "TEXT";
-                    case SQLiteDbType.Blob:
-                        return "BLOB";
-                    case SQLiteDbType.Numeric:
-                        return "NUMERIC";
-                    default:
-                        return "TEXT";
-                }
-            }
-
-            // Otherwise, convert SqlDbType to SQLite types
-            var typeStr = mapping.SqlType.ToString().ToUpper();
-
-            // Handle special cases for SQLite
-            switch (mapping.SqlType)
-            {
-                case SqlDbType.NVarChar:
-                case SqlDbType.VarChar:
-                case SqlDbType.NChar:
-                case SqlDbType.Char:
-                    typeStr = "TEXT";
-                    break;
-                case SqlDbType.Int:
-                case SqlDbType.BigInt:
-                case SqlDbType.SmallInt:
-                case SqlDbType.TinyInt:
-                case SqlDbType.Bit:
-                    typeStr = "INTEGER";
-                    break;
-                case SqlDbType.Float:
-                case SqlDbType.Real:
-                case SqlDbType.Decimal:
-                case SqlDbType.Money:
-                case SqlDbType.SmallMoney:
-                    typeStr = "REAL";
-                    break;
-                case SqlDbType.Binary:
-                case SqlDbType.VarBinary:
-                case SqlDbType.Image:
-                    typeStr = "BLOB";
-                    break;
-                case SqlDbType.DateTime:
-                case SqlDbType.DateTime2:
-                case SqlDbType.DateTimeOffset:
-                case SqlDbType.Date:
-                case SqlDbType.Time:
-                    typeStr = "TEXT"; // SQLite stores dates as text
-                    break;
-                case SqlDbType.UniqueIdentifier:
-                    typeStr = "TEXT";
-                    break;
-            }
-
-            return typeStr;
-        }
-
-        private string FormatDefaultValue(object value, SqlDbType sqlType)
-        {
-            if (value == null)
-                return "NULL";
-
-            if (value is string strValue)
-            {
-                return $"'{strValue.Replace("'", "''")}'";
-            }
-
-            if (value is bool boolValue)
-            {
-                return boolValue ? "1" : "0";
-            }
-
-            if (value is DateTime || value is DateTimeOffset)
-            {
-                return "datetime('now')";
-            }
-
-            if (value.GetType().IsEnum)
-            {
-                return ((int)value).ToString();
-            }
-
-            return value.ToString();
-        }
-
-        private string GenerateForeignKeyConstraint(ForeignKeyDefinition fk)
-        {
-            var sql = new StringBuilder();
-            sql.Append($"CONSTRAINT {fk.ConstraintName} ");
-
-            // Handle composite foreign keys
-            if (fk.IsComposite)
-            {
-                var columns = string.Join(", ", fk.ColumnNames);
-                var referencedColumns = string.Join(", ", fk.ReferencedColumns);
-                sql.Append($"FOREIGN KEY ({columns}) ");
-                sql.Append($"REFERENCES {fk.ReferencedTable}({referencedColumns})");
-            }
-            else
-            {
-                sql.Append($"FOREIGN KEY ({fk.ColumnName}) ");
-                sql.Append($"REFERENCES {fk.ReferencedTable}({fk.ReferencedColumn})");
-            }
-
-            if (!string.IsNullOrEmpty(fk.OnDelete))
-            {
-                sql.Append($" ON DELETE {fk.OnDelete}");
-            }
-
-            if (!string.IsNullOrEmpty(fk.OnUpdate))
-            {
-                sql.Append($" ON UPDATE {fk.OnUpdate}");
-            }
-
-            return sql.ToString();
-        }
+        #region Public Methods - Column Selection
 
         /// <summary>
         /// Gets the columns to select in SELECT queries.
@@ -700,6 +230,13 @@ namespace SQLite.Lib.Mappings
                 .ToList();
         }
 
+        #endregion
+
+        #region Public Methods - Parameter Handling
+
+        /// <summary>
+        /// Adds parameters to a SQLite command for the given entity.
+        /// </summary>
         public void AddParameters(SQLiteCommand command, T entity)
         {
             foreach (var mapping in this.propertyMappings.Values.Where(m => !m.IsNotMapped && !m.IsComputed))
@@ -726,6 +263,10 @@ namespace SQLite.Lib.Mappings
                 command.Parameters.Add(parameter);
             }
         }
+
+        #endregion
+
+        #region Public Methods - Data Mapping
 
         /// <summary>
         /// Maps a data reader row to an entity instance.
@@ -770,6 +311,13 @@ namespace SQLite.Lib.Mappings
             return entity;
         }
 
+        #endregion
+
+        #region Public Methods - Serialization
+
+        /// <summary>
+        /// Serializes an entity to a byte array.
+        /// </summary>
         public byte[] SerializeEntity(T entity)
         {
             return this.serializer.Serialize(entity);
@@ -924,6 +472,47 @@ namespace SQLite.Lib.Mappings
                     $"Original error: {ex.Message}", ex);
             }
         }
+
+        #endregion
+
+        #region Public Methods - Command Creation
+
+        public SQLiteCommand CreateCommand(DbOperationType operationType, T fromValue, T toValue)
+        {
+            var command = new SQLiteCommand();
+
+            switch (operationType)
+            {
+                case DbOperationType.Select:
+                    command.CommandText = this.GenerateSelectCommand();
+                    this.AddSelectParameters(command, fromValue);
+                    break;
+
+                case DbOperationType.Insert:
+                    command.CommandText = this.GenerateInsertCommand();
+                    this.AddParameters(command, fromValue);
+                    break;
+
+                case DbOperationType.Update:
+                    command.CommandText = this.GenerateUpdateCommand();
+                    this.AddUpdateParameters(command, fromValue, toValue);
+                    break;
+
+                case DbOperationType.Delete:
+                    command.CommandText = this.GenerateDeleteCommand();
+                    this.AddDeleteParameters(command, fromValue);
+                    break;
+
+                default:
+                    throw new ArgumentException($"Unsupported operation type: {operationType}");
+            }
+
+            return command;
+        }
+
+        #endregion
+
+        #region Protected Methods
 
         /// <summary>
         /// Converts a database value to the appropriate C# type.
@@ -1256,6 +845,644 @@ namespace SQLite.Lib.Mappings
             }
             return null;
         }
-    }
 
+        #endregion
+
+        #region Private Methods - SQL Generation
+
+        /// <summary>
+        /// Generates SELECT command SQL.
+        /// </summary>
+        private string GenerateSelectCommand()
+        {
+            var tableName = this.GetTableName();
+            var selectColumns = string.Join(", ", this.GetSelectColumns());
+            var primaryKeyColumns = this.GetPrimaryKeyColumns();
+            var whereClause = string.Join(" AND ", primaryKeyColumns.Select(col => $"{col} = @{col}"));
+
+            return $"SELECT {selectColumns} FROM {tableName} WHERE {whereClause}";
+        }
+
+        /// <summary>
+        /// Generates INSERT command SQL.
+        /// </summary>
+        private string GenerateInsertCommand()
+        {
+            var tableName = this.GetTableName();
+            var insertColumns = this.GetInsertColumns();
+            var columnNames = string.Join(", ", insertColumns);
+            var parameterNames = string.Join(", ", insertColumns.Select(col => $"@{col}"));
+
+            return $"INSERT INTO {tableName} ({columnNames}) VALUES ({parameterNames})";
+        }
+
+        /// <summary>
+        /// Generates UPDATE command SQL.
+        /// </summary>
+        private string GenerateUpdateCommand()
+        {
+            var tableName = this.GetTableName();
+            var updateColumns = this.GetUpdateColumns();
+            var primaryKeyColumns = this.GetPrimaryKeyColumns();
+
+            var setClause = string.Join(", ", updateColumns.Select(col => $"{col} = @{col}"));
+            var whereClause = string.Join(" AND ", primaryKeyColumns.Select(col => $"{col} = @old_{col}"));
+
+            return $"UPDATE {tableName} SET {setClause} WHERE {whereClause}";
+        }
+
+        /// <summary>
+        /// Generates DELETE command SQL.
+        /// </summary>
+        private string GenerateDeleteCommand()
+        {
+            var tableName = this.GetTableName();
+            var primaryKeyColumns = this.GetPrimaryKeyColumns();
+            var whereClause = string.Join(" AND ", primaryKeyColumns.Select(col => $"{col} = @{col}"));
+
+            return $"DELETE FROM {tableName} WHERE {whereClause}";
+        }
+
+        /// <summary>
+        /// Adds parameters for SELECT operation.
+        /// </summary>
+        private void AddSelectParameters(SQLiteCommand command, T entity)
+        {
+            var primaryKeyMappings = this.propertyMappings.Values
+                .Where(m => m.IsPrimaryKey)
+                .OrderBy(m => m.PrimaryKeyOrder);
+
+            foreach (var mapping in primaryKeyMappings)
+            {
+                var value = mapping.PropertyInfo.GetValue(entity);
+                var parameter = command.CreateParameter();
+                parameter.ParameterName = $"@{mapping.ColumnName}";
+                parameter.Value = value ?? DBNull.Value;
+                command.Parameters.Add(parameter);
+            }
+        }
+
+        /// <summary>
+        /// Adds parameters for UPDATE operation.
+        /// </summary>
+        private void AddUpdateParameters(SQLiteCommand command, T fromValue, T toValue)
+        {
+            // Add parameters for the SET clause (new values)
+            foreach (var mapping in this.propertyMappings.Values.Where(m => !m.IsNotMapped && !m.IsComputed && !m.IsPrimaryKey))
+            {
+                var value = mapping.PropertyInfo.GetValue(toValue);
+                var parameter = command.CreateParameter();
+                parameter.ParameterName = $"@{mapping.ColumnName}";
+                parameter.Value = value ?? DBNull.Value;
+                command.Parameters.Add(parameter);
+            }
+
+            // Add parameters for the WHERE clause (old primary key values)
+            var primaryKeyMappings = this.propertyMappings.Values
+                .Where(m => m.IsPrimaryKey)
+                .OrderBy(m => m.PrimaryKeyOrder);
+
+            foreach (var mapping in primaryKeyMappings)
+            {
+                var value = mapping.PropertyInfo.GetValue(fromValue);
+                var parameter = command.CreateParameter();
+                parameter.ParameterName = $"@old_{mapping.ColumnName}";
+                parameter.Value = value ?? DBNull.Value;
+                command.Parameters.Add(parameter);
+            }
+        }
+
+        /// <summary>
+        /// Adds parameters for DELETE operation.
+        /// </summary>
+        private void AddDeleteParameters(SQLiteCommand command, T entity)
+        {
+            var primaryKeyMappings = this.propertyMappings.Values
+                .Where(m => m.IsPrimaryKey)
+                .OrderBy(m => m.PrimaryKeyOrder);
+
+            foreach (var mapping in primaryKeyMappings)
+            {
+                var value = mapping.PropertyInfo.GetValue(entity);
+                var parameter = command.CreateParameter();
+                parameter.ParameterName = $"@{mapping.ColumnName}";
+                parameter.Value = value ?? DBNull.Value;
+                command.Parameters.Add(parameter);
+            }
+        }
+
+        /// <summary>
+        /// Gets the primary key column names.
+        /// </summary>
+        private List<string> GetPrimaryKeyColumns()
+        {
+            return this.propertyMappings.Values
+                .Where(m => m.IsPrimaryKey)
+                .OrderBy(m => m.PrimaryKeyOrder)
+                .Select(m => m.ColumnName)
+                .ToList();
+        }
+
+        #endregion
+
+        #region Private Methods
+
+        private void BuildPropertyMappings()
+        {
+            var properties = this.entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            var indexGroups = new Dictionary<string, List<IndexColumn>>();
+            var foreignKeyGroups = new Dictionary<string, List<(PropertyInfo Property, ForeignKeyAttribute Attribute, string ColumnName)>>();
+
+            foreach (var property in properties)
+            {
+                // Check if property should be excluded
+                if (property.GetCustomAttribute<NotMappedAttribute>() != null)
+                {
+                    continue;
+                }
+
+                // Create property mapping
+                var mapping = this.CreatePropertyMapping(property);
+                this.propertyMappings[property] = mapping;
+
+                // Check if this is a primary key
+                var pkAttr = property.GetCustomAttribute<PrimaryKeyAttribute>();
+                if (pkAttr != null)
+                {
+                    if (pkAttr.IsComposite)
+                    {
+                        this.hasCompositeKey = true;
+                        this.compositeKeyProperties.Add(property);
+                    }
+                    else
+                    {
+                        this.primaryKeyProperty = property;
+                    }
+                }
+                else if (this.primaryKeyProperty == null && !this.hasCompositeKey &&
+                         (property.Name == "Id" || property.Name == "Key"))
+                {
+                    // Convention-based primary key
+                    this.primaryKeyProperty = property;
+                    mapping.IsPrimaryKey = true;
+                }
+
+                // Process indexes
+                var indexAttrs = property.GetCustomAttributes<IndexAttribute>();
+                foreach (var indexAttr in indexAttrs)
+                {
+                    var indexName = indexAttr.Name ?? $"IX_{this.tableName}_{mapping.ColumnName}";
+
+                    if (!indexGroups.ContainsKey(indexName))
+                    {
+                        indexGroups[indexName] = new List<IndexColumn>();
+                    }
+
+                    indexGroups[indexName].Add(new IndexColumn
+                    {
+                        ColumnName = mapping.ColumnName,
+                        Order = indexAttr.Order,
+                        IsIncluded = indexAttr.IsIncluded
+                    });
+                }
+
+                // Process foreign keys
+                var fkAttr = property.GetCustomAttribute<ForeignKeyAttribute>();
+                if (fkAttr != null)
+                {
+                    var constraintName = fkAttr.Name ?? $"FK_{this.tableName}_{property.Name}";
+
+                    if (!foreignKeyGroups.ContainsKey(constraintName))
+                    {
+                        foreignKeyGroups[constraintName] = new List<(PropertyInfo, ForeignKeyAttribute, string)>();
+                    }
+
+                    foreignKeyGroups[constraintName].Add((property, fkAttr, mapping.ColumnName));
+                }
+            }
+
+            // Build foreign key definitions from grouped columns
+            foreach (var fkGroup in foreignKeyGroups)
+            {
+                var orderedItems = fkGroup.Value.OrderBy(x => x.Attribute.Ordinal).ToList();
+                var firstAttr = orderedItems.First().Attribute;
+
+                if (orderedItems.Count > 1)
+                {
+                    // Composite foreign key - validate all attributes have same table and actions
+                    var allSameTable = orderedItems.All(x => x.Attribute.ReferencedTable == firstAttr.ReferencedTable);
+                    var allSameDelete = orderedItems.All(x => x.Attribute.OnDelete == firstAttr.OnDelete);
+                    var allSameUpdate = orderedItems.All(x => x.Attribute.OnUpdate == firstAttr.OnUpdate);
+
+                    if (!allSameTable || !allSameDelete || !allSameUpdate)
+                    {
+                        throw new InvalidOperationException(
+                            $"Composite foreign key '{fkGroup.Key}' has inconsistent attributes. " +
+                            "All properties must reference the same table and have the same ON DELETE/UPDATE actions.");
+                    }
+
+                    // Build arrays of columns and referenced columns in ordinal order
+                    var columns = orderedItems.Select(x => x.ColumnName).ToArray();
+                    var referencedColumns = orderedItems.Select(x => x.Attribute.ReferencedColumn).ToArray();
+
+                    this.foreignKeys.Add(new ForeignKeyDefinition
+                    {
+                        ConstraintName = fkGroup.Key,
+                        ColumnNames = columns,
+                        ReferencedTable = firstAttr.ReferencedTable,
+                        ReferencedColumns = referencedColumns,
+                        OnDelete = firstAttr.OnDelete,
+                        OnUpdate = firstAttr.OnUpdate
+                    });
+                }
+                else
+                {
+                    // Single column foreign key
+                    var item = orderedItems.First();
+                    this.foreignKeys.Add(new ForeignKeyDefinition
+                    {
+                        ConstraintName = fkGroup.Key,
+                        ColumnName = item.ColumnName,
+                        ReferencedTable = item.Attribute.ReferencedTable,
+                        ReferencedColumn = item.Attribute.ReferencedColumn,
+                        OnDelete = item.Attribute.OnDelete,
+                        OnUpdate = item.Attribute.OnUpdate
+                    });
+                }
+            }
+
+            // Build index definitions from grouped columns
+            foreach (var group in indexGroups)
+            {
+                var firstColumn = group.Value.First();
+                var firstIndexAttr = properties
+                    .SelectMany(p => p.GetCustomAttributes<IndexAttribute>()
+                        .Where(a => (a.Name ?? $"IX_{this.tableName}_{this.propertyMappings[p].ColumnName}") == group.Key))
+                    .First();
+
+                this.indexes.Add(new IndexDefinition
+                {
+                    Name = group.Key,
+                    Columns = group.Value,
+                    IsUnique = firstIndexAttr.IsUnique,
+                    IsClustered = firstIndexAttr.IsClustered,
+                    Filter = firstIndexAttr.Filter
+                });
+            }
+        }
+
+        private PropertyMapping CreatePropertyMapping(PropertyInfo property)
+        {
+            var mapping = new PropertyMapping
+            {
+                PropertyInfo = property,
+                PropertyName = property.Name,
+                PropertyType = property.PropertyType,
+                IsNotMapped = false
+            };
+
+            // Get column attribute
+            var columnAttr = property.GetCustomAttribute<ColumnAttribute>();
+
+            // Column name
+            mapping.ColumnName = columnAttr?.Name ?? property.Name;
+
+            // Data type
+            if (columnAttr?.SQLiteType != null)
+            {
+                mapping.SQLiteType = columnAttr.SQLiteType.Value;
+                mapping.Size = columnAttr.Size;
+            }
+            else if (columnAttr?.SqlType != null)
+            {
+                mapping.SqlType = columnAttr.SqlType.Value;
+                mapping.Size = columnAttr.Size;
+                mapping.Precision = columnAttr.Precision;
+                mapping.Scale = columnAttr.Scale;
+            }
+            else
+            {
+                // Infer SQL type from property type
+                this.InferSqlType(property.PropertyType, mapping);
+            }
+
+            // Nullability - Use NotNull property (inverted logic)
+            mapping.IsNullable = columnAttr != null ? !columnAttr.NotNull : this.IsNullableType(property.PropertyType);
+
+            // Default value
+            mapping.DefaultValue = columnAttr?.DefaultValue;
+            mapping.DefaultConstraintName = columnAttr?.DefaultConstraintName;
+
+            // Check constraint
+            var checkAttr = property.GetCustomAttribute<CheckAttribute>();
+            if (checkAttr != null)
+            {
+                mapping.CheckConstraint = checkAttr.Expression;
+                mapping.CheckConstraintName = checkAttr.Name ?? $"CK_{this.tableName}_{mapping.ColumnName}";
+            }
+
+            // Computed column
+            var computedAttr = property.GetCustomAttribute<ComputedAttribute>();
+            if (computedAttr != null)
+            {
+                mapping.IsComputed = true;
+                mapping.ComputedExpression = computedAttr.Expression;
+                mapping.IsPersisted = computedAttr.IsPersisted;
+            }
+
+            // Audit fields
+            var auditAttr = property.GetCustomAttribute<AuditFieldAttribute>();
+            if (auditAttr != null)
+            {
+                mapping.IsAuditField = true;
+                mapping.AuditFieldType = auditAttr.FieldType;
+            }
+
+            // Primary key
+            var pkAttr = property.GetCustomAttribute<PrimaryKeyAttribute>();
+            if (pkAttr != null)
+            {
+                mapping.IsPrimaryKey = true;
+                mapping.PrimaryKeyOrder = pkAttr.Order;
+                mapping.IsAutoIncrement = pkAttr.IsAutoIncrement;
+                mapping.SequenceName = pkAttr.SequenceName;
+            }
+
+            // Unique constraint
+            var uniqueAttr = property.GetCustomAttribute<UniqueAttribute>();
+            if (uniqueAttr != null)
+            {
+                mapping.IsUnique = true;
+                mapping.UniqueConstraintName = uniqueAttr.Name ?? $"UQ_{this.tableName}_{mapping.ColumnName}";
+            }
+
+            return mapping;
+        }
+
+        private void InferSqlType(Type clrType, PropertyMapping mapping)
+        {
+            var underlyingType = Nullable.GetUnderlyingType(clrType) ?? clrType;
+
+            if (underlyingType == typeof(string))
+            {
+                mapping.SqlType = SqlDbType.NVarChar;
+                mapping.Size = 255; // Default size
+            }
+            else if (underlyingType == typeof(int))
+            {
+                mapping.SqlType = SqlDbType.Int;
+            }
+            else if (underlyingType == typeof(long))
+            {
+                mapping.SqlType = SqlDbType.BigInt;
+            }
+            else if (underlyingType == typeof(short))
+            {
+                mapping.SqlType = SqlDbType.SmallInt;
+            }
+            else if (underlyingType == typeof(byte))
+            {
+                mapping.SqlType = SqlDbType.TinyInt;
+            }
+            else if (underlyingType == typeof(bool))
+            {
+                mapping.SqlType = SqlDbType.Bit;
+            }
+            else if (underlyingType == typeof(decimal))
+            {
+                mapping.SqlType = SqlDbType.Decimal;
+                mapping.Precision = 18;
+                mapping.Scale = 2;
+            }
+            else if (underlyingType == typeof(double))
+            {
+                mapping.SqlType = SqlDbType.Float;
+            }
+            else if (underlyingType == typeof(float))
+            {
+                mapping.SqlType = SqlDbType.Real;
+            }
+            else if (underlyingType == typeof(DateTime))
+            {
+                mapping.SqlType = SqlDbType.DateTime2;
+            }
+            else if (underlyingType == typeof(DateTimeOffset))
+            {
+                mapping.SqlType = SqlDbType.DateTimeOffset;
+            }
+            else if (underlyingType == typeof(TimeSpan))
+            {
+                mapping.SqlType = SqlDbType.Time;
+            }
+            else if (underlyingType == typeof(byte[]))
+            {
+                mapping.SqlType = SqlDbType.VarBinary;
+                mapping.Size = -1; // MAX
+            }
+            else if (underlyingType == typeof(Guid))
+            {
+                mapping.SqlType = SqlDbType.UniqueIdentifier;
+            }
+            else if (underlyingType.IsEnum)
+            {
+                mapping.SqlType = SqlDbType.Int; // Store enums as integers by default
+            }
+            else
+            {
+                // Default to NVARCHAR for complex types (will be serialized)
+                mapping.SqlType = SqlDbType.NVarChar;
+                mapping.Size = -1; // MAX
+            }
+        }
+
+        private bool IsNullableType(Type type)
+        {
+            return !type.IsValueType || Nullable.GetUnderlyingType(type) != null;
+        }
+
+        private string GenerateColumnDefinition(PropertyMapping mapping)
+        {
+            var sql = new StringBuilder();
+            sql.Append($"{mapping.ColumnName} ");
+
+            // Data type
+            sql.Append(this.GetSqlTypeString(mapping));
+
+            // Primary key with auto-increment
+            if (mapping.IsPrimaryKey && !this.hasCompositeKey)
+            {
+                sql.Append(" PRIMARY KEY");
+                if (mapping.IsAutoIncrement)
+                {
+                    sql.Append(" AUTOINCREMENT");
+                }
+            }
+
+            // Nullability
+            if (!mapping.IsNullable && !mapping.IsPrimaryKey)
+            {
+                sql.Append(" NOT NULL");
+            }
+
+            // Unique constraint
+            if (mapping.IsUnique && !mapping.IsPrimaryKey)
+            {
+                sql.Append(" UNIQUE");
+            }
+
+            // Default value
+            if (mapping.DefaultValue != null)
+            {
+                sql.Append($" DEFAULT {this.FormatDefaultValue(mapping.DefaultValue, mapping.SqlType)}");
+            }
+
+            // Check constraint
+            if (!string.IsNullOrEmpty(mapping.CheckConstraint))
+            {
+                sql.Append($" CHECK ({mapping.CheckConstraint})");
+            }
+
+            // Computed column
+            if (mapping.IsComputed && !string.IsNullOrEmpty(mapping.ComputedExpression))
+            {
+                sql.Append($" AS ({mapping.ComputedExpression})");
+                if (mapping.IsPersisted)
+                {
+                    sql.Append(" PERSISTED");
+                }
+            }
+
+            return sql.ToString();
+        }
+
+        private string GetSqlTypeString(PropertyMapping mapping)
+        {
+            // If SQLiteType is specified, use it directly
+            if (mapping.SQLiteType.HasValue)
+            {
+                switch (mapping.SQLiteType.Value)
+                {
+                    case SQLiteDbType.Integer:
+                        return "INTEGER";
+                    case SQLiteDbType.Real:
+                        return "REAL";
+                    case SQLiteDbType.Text:
+                        return "TEXT";
+                    case SQLiteDbType.Blob:
+                        return "BLOB";
+                    case SQLiteDbType.Numeric:
+                        return "NUMERIC";
+                    default:
+                        return "TEXT";
+                }
+            }
+
+            // Otherwise, convert SqlDbType to SQLite types
+            var typeStr = mapping.SqlType.ToString().ToUpper();
+
+            // Handle special cases for SQLite
+            switch (mapping.SqlType)
+            {
+                case SqlDbType.NVarChar:
+                case SqlDbType.VarChar:
+                case SqlDbType.NChar:
+                case SqlDbType.Char:
+                    typeStr = "TEXT";
+                    break;
+                case SqlDbType.Int:
+                case SqlDbType.BigInt:
+                case SqlDbType.SmallInt:
+                case SqlDbType.TinyInt:
+                case SqlDbType.Bit:
+                    typeStr = "INTEGER";
+                    break;
+                case SqlDbType.Float:
+                case SqlDbType.Real:
+                case SqlDbType.Decimal:
+                case SqlDbType.Money:
+                case SqlDbType.SmallMoney:
+                    typeStr = "REAL";
+                    break;
+                case SqlDbType.Binary:
+                case SqlDbType.VarBinary:
+                case SqlDbType.Image:
+                    typeStr = "BLOB";
+                    break;
+                case SqlDbType.DateTime:
+                case SqlDbType.DateTime2:
+                case SqlDbType.DateTimeOffset:
+                case SqlDbType.Date:
+                case SqlDbType.Time:
+                    typeStr = "TEXT"; // SQLite stores dates as text
+                    break;
+                case SqlDbType.UniqueIdentifier:
+                    typeStr = "TEXT";
+                    break;
+            }
+
+            return typeStr;
+        }
+
+        private string FormatDefaultValue(object value, SqlDbType sqlType)
+        {
+            if (value == null)
+                return "NULL";
+
+            if (value is string strValue)
+            {
+                return $"'{strValue.Replace("'", "''")}'";
+            }
+
+            if (value is bool boolValue)
+            {
+                return boolValue ? "1" : "0";
+            }
+
+            if (value is DateTime || value is DateTimeOffset)
+            {
+                return "datetime('now')";
+            }
+
+            if (value.GetType().IsEnum)
+            {
+                return ((int)value).ToString();
+            }
+
+            return value.ToString();
+        }
+
+        private string GenerateForeignKeyConstraint(ForeignKeyDefinition fk)
+        {
+            var sql = new StringBuilder();
+            sql.Append($"CONSTRAINT {fk.ConstraintName} ");
+
+            // Handle composite foreign keys
+            if (fk.IsComposite)
+            {
+                var columns = string.Join(", ", fk.ColumnNames);
+                var referencedColumns = string.Join(", ", fk.ReferencedColumns);
+                sql.Append($"FOREIGN KEY ({columns}) ");
+                sql.Append($"REFERENCES {fk.ReferencedTable}({referencedColumns})");
+            }
+            else
+            {
+                sql.Append($"FOREIGN KEY ({fk.ColumnName}) ");
+                sql.Append($"REFERENCES {fk.ReferencedTable}({fk.ReferencedColumn})");
+            }
+
+            if (!string.IsNullOrEmpty(fk.OnDelete))
+            {
+                sql.Append($" ON DELETE {fk.OnDelete}");
+            }
+
+            if (!string.IsNullOrEmpty(fk.OnUpdate))
+            {
+                sql.Append($" ON UPDATE {fk.OnUpdate}");
+            }
+
+            return sql.ToString();
+        }
+
+        #endregion
+    }
 }

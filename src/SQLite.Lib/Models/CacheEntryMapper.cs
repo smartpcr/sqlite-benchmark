@@ -4,11 +4,11 @@
 // </copyright>
 // -----------------------------------------------------------------------
 
-namespace SQLite.Lib.Mappings
+namespace SQLite.Lib.Models
 {
     using System.Data;
     using SQLite.Lib.Contracts;
-    using SQLite.Lib.Models;
+    using SQLite.Lib.Mappings;
     using SQLite.Lib.Serialization;
 
     /// <summary>

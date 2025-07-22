@@ -8,7 +8,7 @@
 namespace SQLite.Lib
 {
     using System;
-    using System.Data.SqlClient;
+    using System.Data.SQLite;
     using SQLite.Lib.Contracts;
 
     /// <summary>
@@ -19,8 +19,8 @@ namespace SQLite.Lib
         public string OperationId { get; private set; }
         public string Description { get; private set; }
         public SqlExecMode ExecMode { get; private set; }
-        public SqlCommand CommitCommand { get; private set; }
-        public SqlCommand RollbackCommand { get; private set; }
+        public SQLiteCommand CommitCommand { get; private set; }
+        public SQLiteCommand RollbackCommand { get; private set; }
 
         private TransactionalOperation()
         {

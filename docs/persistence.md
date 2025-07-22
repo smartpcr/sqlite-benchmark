@@ -561,6 +561,72 @@ erDiagram
         TEXT LastModifiedTime "NOT NULL DEFAULT datetime('now')"
     }
     
+    UpdateEntity {
+        TEXT CacheKey PK "NOT NULL, Inherited from BaseEntity"
+        INTEGER Version PK "NOT NULL, Inherited from BaseEntity"
+        TEXT CreatedTime "NOT NULL, Inherited from BaseEntity"
+        TEXT LastWriteTime "NOT NULL, Inherited from BaseEntity"
+        INTEGER IsDeleted "NOT NULL, Inherited from BaseEntity"
+        TEXT DisplayName "NOT NULL"
+        TEXT UpdateVersion "NOT NULL"
+        TEXT SbeVersion
+        TEXT Description
+        TEXT State "NOT NULL"
+        TEXT Publisher
+        TEXT InstalledDate
+        TEXT KbLink
+        TEXT ReleaseLink
+        TEXT MinVersionRequired
+        TEXT MinSbeVersionRequired
+        TEXT PackagePath
+        INTEGER PackageSizeInMb "NOT NULL"
+        TEXT PackageType
+        TEXT DeliveryType
+        TEXT RebootRequired
+        TEXT InstallType
+        TEXT AvailabilityType
+        TEXT HealthState
+        TEXT HealthCheckDate
+        INTEGER IsRecalled "NOT NULL"
+        TEXT OemFamily
+        TEXT Prerequisites "JSON serialized"
+        TEXT AdditionalProperties "JSON serialized"
+        TEXT BillOfMaterials "JSON serialized"
+        TEXT HealthCheckResult "JSON serialized"
+        TEXT UpdateStateProperties "JSON serialized"
+        INTEGER DeferScanAndDownload "NOT NULL"
+    }
+    
+    UpdateRunEntity {
+        TEXT CacheKey PK "NOT NULL, Inherited from BaseEntity"
+        INTEGER Version PK "NOT NULL, Inherited from BaseEntity"
+        TEXT CreatedTime "NOT NULL, Inherited from BaseEntity"
+        TEXT LastWriteTime "NOT NULL, Inherited from BaseEntity"
+        INTEGER IsDeleted "NOT NULL, Inherited from BaseEntity"
+        TEXT Name "NOT NULL"
+        TEXT ResourceId "NOT NULL"
+        TEXT ParentId
+        TEXT ResourceType "NOT NULL"
+        TEXT TimeStarted
+        TEXT LastUpdatedTime
+        INTEGER Duration "NOT NULL"
+        TEXT State "NOT NULL"
+        INTEGER OnCompleteActionSuccess "NOT NULL"
+        INTEGER PreparationDownloadPercentage "NOT NULL"
+        INTEGER IsPreparationRun "NOT NULL"
+        TEXT Progress "JSON serialized"
+        TEXT ProgressStatus
+        TEXT ProgressDescription
+        TEXT CurrentStepName
+        INTEGER TotalSteps "NOT NULL"
+        INTEGER CompletedSteps "NOT NULL"
+        TEXT ErrorMessage
+        TEXT UpdateName
+        TEXT UpdateVersion
+        TEXT ActionPlanId
+        TEXT ActionPlanInstanceId
+    }
+    
     CacheStatistics {
         INTEGER Id PK "AUTOINCREMENT"
         TEXT TypeName "NOT NULL"

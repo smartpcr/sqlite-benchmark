@@ -28,6 +28,7 @@ namespace SQLite.Lib.Mappings
         public object DefaultValue { get; set; }
         public string DefaultConstraintName { get; set; }
         public bool IsPrimaryKey { get; set; }
+        public int PrimaryKeyOrder { get; set; }
         public bool IsAutoIncrement { get; set; }
         public string SequenceName { get; set; }
         public bool IsUnique { get; set; }

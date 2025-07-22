@@ -4,10 +4,9 @@
 // </copyright>
 // -----------------------------------------------------------------------
 
-namespace SQLite.Lib
+namespace SQLite.Lib.Contracts
 {
     using System;
-    using SQLite.Lib.Contracts;
 
     public interface ISQLiteEntity<TKey> : IEntity<TKey> where TKey : IEquatable<TKey>
     {
