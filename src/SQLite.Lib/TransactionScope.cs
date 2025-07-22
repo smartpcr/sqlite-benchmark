@@ -9,6 +9,7 @@ namespace SQLite.Lib
     using System;
     using System.Collections.Concurrent;
     using System.Collections.Generic;
+    using System.Data.SQLite;
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
@@ -18,33 +19,37 @@ namespace SQLite.Lib
     /// Implementation of ITransactionScope that manages transactional operations.
     /// Created by persistence provider and handles SQL translation internally.
     /// </summary>
-    public class TransactionScope : ITransactionScope
+    public class TransactionScope<T, TKey> : ITransactionScope<T, TKey>
+        where T : class, IEntity<TKey>
+        where TKey : IEquatable<TKey>
     {
         private readonly string connectionString;
-        private readonly ConcurrentDictionary<(Type entityType, Type keyType), object> providers = new ConcurrentDictionary<(Type, Type), object>();
-        private readonly List<ITransactionalOperation> operations = new List<ITransactionalOperation>();
+        private readonly IPersistenceProvider<T, TKey> provider;
+        private readonly List<ITransactionalOperation<T, T>> operations = new List<ITransactionalOperation<T, T>>();
         private readonly object lockObject = new object();
         private bool disposed;
+        private bool shouldCommit = true; // Default to commit unless explicitly rolled back
 
         public string TransactionId { get; }
         public TransactionState State { get; private set; }
         public DateTimeOffset StartTime { get; }
 
-        public TransactionScope(string connectionString)
+        public TransactionScope(string connectionString, IPersistenceProvider<T, TKey> provider)
         {
             this.connectionString = connectionString;
+            this.provider = provider;
             this.TransactionId = Guid.NewGuid().ToString();
             this.State = TransactionState.Active;
             this.StartTime = DateTimeOffset.UtcNow;
         }
 
-        public void AddOperation(ITransactionalOperation operation)
+        public void AddOperation(ITransactionalOperation<T, T> operation)
         {
             if (operation == null)
                 throw new ArgumentNullException(nameof(operation));
 
-            if (State != TransactionState.Active)
-                throw new InvalidOperationException($"Cannot add operations to a {State} transaction.");
+            if (this.State != TransactionState.Active)
+                throw new InvalidOperationException($"Cannot add operations to a {this.State} transaction.");
 
             lock (this.lockObject)
             {
@@ -52,13 +57,13 @@ namespace SQLite.Lib
             }
         }
 
-        public void AddOperations(IEnumerable<ITransactionalOperation> operations)
+        public void AddOperations(IEnumerable<ITransactionalOperation<T, T>> operations)
         {
             if (operations == null)
                 throw new ArgumentNullException(nameof(operations));
 
-            if (State != TransactionState.Active)
-                throw new InvalidOperationException($"Cannot add operations to a {State} transaction.");
+            if (this.State != TransactionState.Active)
+                throw new InvalidOperationException($"Cannot add operations to a {this.State} transaction.");
 
             lock (this.lockObject)
             {
@@ -66,36 +71,83 @@ namespace SQLite.Lib
             }
         }
 
-        public async Task<bool> ExecuteAsync(CancellationToken cancellationToken = default)
+        /// <summary>
+        /// Marks the transaction for rollback. The actual rollback will occur during disposal.
+        /// </summary>
+        public void Rollback()
         {
-            if (State != TransactionState.Active)
-                throw new InvalidOperationException($"Cannot execute a {State} transaction.");
+            if (this.State != TransactionState.Active)
+                throw new InvalidOperationException($"Cannot rollback a {this.State} transaction.");
 
-            State = TransactionState.Committing;
+            this.shouldCommit = false;
+        }
 
-            var reverseOperations = new Stack<(object result, object operation)>();
-            object currentInput = null;
+        /// <summary>
+        /// Marks the transaction for commit. This is the default behavior.
+        /// </summary>
+        public void Commit()
+        {
+            if (this.State != TransactionState.Active)
+                throw new InvalidOperationException($"Cannot commit a {this.State} transaction.");
+
+            this.shouldCommit = true;
+        }
+
+        private async Task<bool> ExecuteAsync(CancellationToken cancellationToken = default)
+        {
+            if (this.State != TransactionState.Active)
+                throw new InvalidOperationException($"Cannot execute a {this.State} transaction.");
+
+            this.State = TransactionState.Committing;
+            var reverseOperations = new Stack<(T result, ITransactionalOperation<T, T> operation)>();
 
             try
             {
+                using var connection = new SQLiteConnection(this.connectionString);
+                // Always pass cancellation token to OpenAsync for proper cancellation support
+                await connection.OpenAsync(cancellationToken);
+
                 // Execute forward operations in sequence, chaining outputs to inputs
-                foreach (var transactionalOperation in this.operations)
+                lock (this.lockObject)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    switch (transactionalOperation.ExecMode)
+                    foreach (var transactionalOperation in this.operations)
                     {
-                        case SqlExecMode.ExecuteReader:
+                        cancellationToken.ThrowIfCancellationRequested();
 
+                        // Fire BeforeCommit event using the proper method
+                        transactionalOperation.OnBeforeCommit();
+
+                        var cmd = transactionalOperation.CommitCommand;
+                        cmd.Connection = connection;
+                        T result = transactionalOperation.Input;
+                        switch (transactionalOperation.ExecMode)
+                        {
+                            case SqlExecMode.ExecuteReader:
+                                var reader = cmd.ExecuteReader();
+                                result = this.provider.Mapper.MapFromReader(reader);
+                                transactionalOperation.Output = result;
+                                break;
+                            case SqlExecMode.ExecuteNonQuery:
+                                cmd.ExecuteNonQuery();
+                                break;
+                            case SqlExecMode.ExecuteScalar:
+                                cmd.ExecuteScalar();
+                                break;
+                        }
+
+                        // Fire AfterCommit event using the proper method
+                        transactionalOperation.OnAfterCommit();
+
+                        reverseOperations.Push((result, transactionalOperation));
                     }
                 }
 
-                State = TransactionState.Committed;
+                this.State = TransactionState.Committed;
                 return true;
             }
             catch (Exception ex)
             {
-                State = TransactionState.RollingBack;
+                this.State = TransactionState.RollingBack;
 
                 // Rollback in reverse order
                 var rollbackErrors = new List<Exception>();
@@ -103,30 +155,38 @@ namespace SQLite.Lib
                 while (reverseOperations.Count > 0)
                 {
                     var (result, operation) = reverseOperations.Pop();
+                    if (result != null)
+                    {
+                        operation.Input = result;
+                    }
 
                     try
                     {
-                        // Get the reverse operation
-                        var operationType = operation.GetType();
-                        var reverseProperty = operationType.GetProperty("ReverseOperation");
+                        // Fire BeforeRollback event using the proper method
+                        operation.OnBeforeRollback();
 
-                        if (reverseProperty != null)
+                        using var connection = new SQLiteConnection(this.connectionString);
+                        await connection.OpenAsync(cancellationToken);
+                        var cmd = operation.RollbackCommand;
+                        cmd.Connection = connection;
+
+                        switch (operation.ExecMode)
                         {
-                            var reverseOperation = reverseProperty.GetValue(operation);
-                            if (reverseOperation != null)
-                            {
-                                var reverseType = reverseOperation.GetType();
-                                var reverseExecuteMethod = reverseType.GetMethod("ExecuteAsync");
-
-                                if (reverseExecuteMethod != null)
-                                {
-                                    var reverseTask = reverseExecuteMethod.Invoke(
-                                        reverseOperation,
-                                        new object[] { result, this.provider, cancellationToken }) as Task;
-                                    await reverseTask.ConfigureAwait(false);
-                                }
-                            }
+                            case SqlExecMode.ExecuteReader:
+                                var reader = cmd.ExecuteReader();
+                                result = this.provider.Mapper.MapFromReader(reader);
+                                operation.Output = result;
+                                break;
+                            case SqlExecMode.ExecuteNonQuery:
+                                cmd.ExecuteNonQuery();
+                                break;
+                            case SqlExecMode.ExecuteScalar:
+                                cmd.ExecuteScalar();
+                                break;
                         }
+
+                        // Fire AfterRollback event using the proper method
+                        operation.OnAfterRollback();
                     }
                     catch (Exception rollbackEx)
                     {
@@ -136,7 +196,7 @@ namespace SQLite.Lib
                     }
                 }
 
-                State = TransactionState.Failed;
+                this.State = TransactionState.Failed;
 
                 if (rollbackErrors.Any())
                 {
@@ -155,26 +215,58 @@ namespace SQLite.Lib
             if (this.disposed)
                 return;
 
-            if (this.State == TransactionState.Active)
+            if (this.State == TransactionState.Active && this.operations.Count > 0)
             {
-                // Log warning - transaction was not executed
-                // In production, this would log a warning that a transaction was disposed without execution
+                try
+                {
+                    // Execute the transaction based on shouldCommit flag
+                    if (this.shouldCommit)
+                    {
+                        // Execute normally (commit)
+                        var task = this.ExecuteAsync(CancellationToken.None);
+                        task.Wait();
+                    }
+                    else
+                    {
+                        // Rollback - fire rollback events for all operations
+                        this.State = TransactionState.RollingBack;
+
+                        foreach (var operation in this.operations)
+                        {
+                            try
+                            {
+                                // Fire BeforeRollback event using the proper method
+                                operation.OnBeforeRollback();
+
+                                if (operation.RollbackCommand != null)
+                                {
+                                    using var connection = new SQLiteConnection(this.connectionString);
+                                    connection.Open();
+                                    operation.RollbackCommand.Connection = connection;
+                                    operation.RollbackCommand.ExecuteNonQuery();
+                                }
+
+                                // Fire AfterRollback event using the proper method
+                                operation.OnAfterRollback();
+                            }
+                            catch (Exception ex)
+                            {
+                                // Log rollback error but continue with other rollbacks
+                                // In production, this would be logged
+                            }
+                        }
+
+                        this.State = TransactionState.Failed;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // In production, this would be logged
+                    this.State = TransactionState.Failed;
+                }
             }
 
             this.disposed = true;
-        }
-
-        private IPersistenceProvider<T, TKey> GetProvider<T, TKey>()
-            where T : class, IEntity<TKey>
-            where TKey : IEquatable<TKey>
-        {
-            var key = (typeof(T), typeof(TKey));
-            if (!this.providers.TryGetValue(key, out var provider))
-            {
-                throw new InvalidOperationException($"No provider registered for entity type {typeof(T).Name} with key type {typeof(TKey).Name}");
-            }
-
-            return (IPersistenceProvider<T, TKey>)provider;
         }
     }
 }

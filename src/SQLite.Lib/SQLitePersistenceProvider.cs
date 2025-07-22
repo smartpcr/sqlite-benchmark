@@ -23,16 +23,20 @@ namespace SQLite.Lib
         where TKey : IEquatable<TKey>
     {
         private readonly string connectionString;
-        private readonly ISQLiteEntityMapper<T, TKey> mapper;
+        private readonly Models.VersionMapper versionMapper;
         private readonly string tableName;
+
+        public ISQLiteEntityMapper<T, TKey> Mapper { get; private set; }
 
         public SQLitePersistenceProvider(
             string connectionString,
-            ISQLiteEntityMapper<T, TKey> mapper)
+            ISQLiteEntityMapper<T, TKey> mapper,
+            Models.VersionMapper versionMapper)
         {
             this.connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
-            this.mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
-            this.tableName = this.mapper.GetTableName();
+            this.Mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
+            this.versionMapper = versionMapper ?? throw new ArgumentNullException(nameof(versionMapper));
+            this.tableName = this.Mapper.GetTableName();
         }
 
         #region CRUD Operations - Translating Func delegates to SQL
@@ -51,9 +55,9 @@ namespace SQLite.Lib
             // 3. Filtering would hide deleted entities and make it impossible to distinguish
             //    between "never existed" and "was deleted"
             var sql = $@"
-                SELECT {this.mapper.GetSelectColumns()}
+                SELECT {this.Mapper.GetSelectColumns()}
                 FROM {this.tableName}
-                WHERE {this.mapper.GetPrimaryKeyColumn()} = @key
+                WHERE {this.Mapper.GetPrimaryKeyColumn()} = @key
                 ORDER BY Version DESC
                 LIMIT 1";
 
@@ -63,16 +67,15 @@ namespace SQLite.Lib
             // Always pass cancellation token to OpenAsync for proper cancellation support
             await connection.OpenAsync(cancellationToken);
 
-            using var command = new SQLiteCommand(sql, connection);
-            // Add parameter for type safety and SQL injection prevention
-            command.Parameters.AddWithValue("@key", this.mapper.SerializeKey(key));
+            using var command = this.Mapper.CreateCommand(DbOperationType.Select, key, null, null);
+            command.Connection = connection;
 
             long? version = null;
 
             using var reader = await command.ExecuteReaderAsync(cancellationToken);
             if (await reader.ReadAsync(cancellationToken))
             {
-                var foundEntity = this.mapper.MapFromReader(reader);
+                var foundEntity = this.Mapper.MapFromReader(reader);
 
                 // Check if the entity is marked as deleted
                 if (foundEntity != null)
@@ -110,7 +113,7 @@ namespace SQLite.Lib
                     await historyConnection.OpenAsync(cancellationToken);
 
                     using var historyCommand = new SQLiteCommand(historyInsertSql, historyConnection);
-                    historyCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(key));
+                    historyCommand.Parameters.AddWithValue("@key", this.Mapper.SerializeKey(key));
                     historyCommand.Parameters.AddWithValue("@typeName", typeof(T).Name);
                     historyCommand.Parameters.AddWithValue("@cacheHit", result != null ? 1 : 0);
                     historyCommand.Parameters.AddWithValue("@version", version ?? (object)DBNull.Value);
@@ -144,19 +147,19 @@ namespace SQLite.Lib
             {
                 // Step 1: Check if entity already exists and is not deleted
                 var checkExistsSql = $@"
-                    SELECT {this.mapper.GetSelectColumns()}
+                    SELECT {this.Mapper.GetSelectColumns()}
                     FROM {this.tableName}
-                    WHERE {this.mapper.GetPrimaryKeyColumn()} = @key
+                    WHERE {this.Mapper.GetPrimaryKeyColumn()} = @key
                     ORDER BY Version DESC
                     LIMIT 1";
 
                 using var checkCommand = new SQLiteCommand(checkExistsSql, connection, transaction);
-                checkCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(entity.Id));
+                checkCommand.Parameters.AddWithValue("@key", this.Mapper.SerializeKey(entity.Id));
 
                 using var checkReader = await checkCommand.ExecuteReaderAsync(cancellationToken);
                 if (await checkReader.ReadAsync(cancellationToken))
                 {
-                    var existingEntity = this.mapper.MapFromReader(checkReader);
+                    var existingEntity = this.Mapper.MapFromReader(checkReader);
                     if (!existingEntity.IsDeleted)
                     {
                         throw new EntityAlreadyExistsException(
@@ -170,13 +173,13 @@ namespace SQLite.Lib
                 entity.LastWriteTime = entity.CreatedTime;
 
                 // Get column names and parameter names
-                var columns = this.mapper.GetInsertColumns();
+                var columns = this.Mapper.GetInsertColumns();
                 var parameters = columns.Select(c => $"@{c}").ToList();
 
                 // Step 2: Insert into Version table to get next version
-                var insertVersionSql = "INSERT INTO Version DEFAULT VALUES; SELECT last_insert_rowid();";
-
-                using var versionCommand = new SQLiteCommand(insertVersionSql, connection, transaction);
+                using var versionCommand = this.versionMapper.CreateGetNextVersionCommand();
+                versionCommand.Connection = connection;
+                versionCommand.Transaction = transaction;
                 var version = Convert.ToInt64(await versionCommand.ExecuteScalarAsync(cancellationToken));
                 entity.Version = version;
 
@@ -186,24 +189,24 @@ namespace SQLite.Lib
                     VALUES ({string.Join(", ", parameters)});";
 
                 using var insertCommand = new SQLiteCommand(insertEntitySql, connection, transaction);
-                this.mapper.AddParameters(insertCommand, entity);
+                this.Mapper.AddParameters(insertCommand, entity);
                 await insertCommand.ExecuteNonQueryAsync(cancellationToken);
 
                 // Step 4: Retrieve the inserted entity
                 var selectSql = $@"
-                    SELECT {this.mapper.GetSelectColumns()}
+                    SELECT {this.Mapper.GetSelectColumns()}
                     FROM {this.tableName}
-                    WHERE {this.mapper.GetPrimaryKeyColumn()} = @key
+                    WHERE {this.Mapper.GetPrimaryKeyColumn()} = @key
                       AND Version = @version;";
 
                 using var selectCommand = new SQLiteCommand(selectSql, connection, transaction);
-                selectCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(entity.Id));
+                selectCommand.Parameters.AddWithValue("@key", this.Mapper.SerializeKey(entity.Id));
                 selectCommand.Parameters.AddWithValue("@version", version);
 
                 using var reader = await selectCommand.ExecuteReaderAsync(cancellationToken);
                 if (await reader.ReadAsync(cancellationToken))
                 {
-                    var result = this.mapper.MapFromReader(reader);
+                    var result = this.Mapper.MapFromReader(reader);
                     transaction.Commit();
 
                     // Populate CacheUpdateHistory after commit
@@ -229,7 +232,7 @@ namespace SQLite.Lib
                             await historyConnection.OpenAsync(cancellationToken);
 
                             using var historyCommand = new SQLiteCommand(historyInsertSql, historyConnection);
-                            historyCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(entity.Id));
+                            historyCommand.Parameters.AddWithValue("@key", this.Mapper.SerializeKey(entity.Id));
                             historyCommand.Parameters.AddWithValue("@typeName", typeof(T).Name);
                             historyCommand.Parameters.AddWithValue("@version", version);
                             historyCommand.Parameters.AddWithValue("@size", this.EstimateEntitySize(entity));
@@ -279,27 +282,27 @@ namespace SQLite.Lib
                     // Note: Here we DO filter by IsDeleted = 0 because we're verifying
                     // the entity exists and matches the expected version for update
                     var selectOldSql = $@"
-                        SELECT {this.mapper.GetSelectColumns()}
+                        SELECT {this.Mapper.GetSelectColumns()}
                         FROM {this.tableName}
-                        WHERE {this.mapper.GetPrimaryKeyColumn()} = @key
+                        WHERE {this.Mapper.GetPrimaryKeyColumn()} = @key
                           AND Version = @originalVersion
                           AND IsDeleted = 0";
 
                     using var selectOldCommand = new SQLiteCommand(selectOldSql, connection, transaction);
-                    selectOldCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(entity.Id));
+                    selectOldCommand.Parameters.AddWithValue("@key", this.Mapper.SerializeKey(entity.Id));
                     selectOldCommand.Parameters.AddWithValue("@originalVersion", originalVersion);
 
                     using var oldReader = await selectOldCommand.ExecuteReaderAsync(cancellationToken);
                     if (await oldReader.ReadAsync(cancellationToken))
                     {
-                        oldValue = this.mapper.MapFromReader(oldReader);
+                        oldValue = this.Mapper.MapFromReader(oldReader);
                     }
                 }
 
                 // Step 2: Insert into Version table to get next version
-                var insertVersionSql = "INSERT INTO Version (Timestamp) VALUES (datetime('now')); SELECT last_insert_rowid();";
-
-                using var versionCommand = new SQLiteCommand(insertVersionSql, connection, transaction);
+                using var versionCommand = this.versionMapper.CreateGetNextVersionCommand();
+                versionCommand.Connection = connection;
+                versionCommand.Transaction = transaction;
                 var newVersion = Convert.ToInt64(await versionCommand.ExecuteScalarAsync(cancellationToken));
 
                 // Update tracking fields
@@ -307,7 +310,7 @@ namespace SQLite.Lib
                 entity.Version = newVersion;
 
                 // Build SET clause with all updatable columns
-                var updateColumns = this.mapper.GetUpdateColumns()
+                var updateColumns = this.Mapper.GetUpdateColumns()
                     .Select(c => $"{c} = @{c}")
                     .ToList();
 
@@ -315,7 +318,7 @@ namespace SQLite.Lib
                 var updateSql = $@"
                     UPDATE {this.tableName}
                     SET {string.Join(", ", updateColumns)}
-                    WHERE {this.mapper.GetPrimaryKeyColumn()} = @key
+                    WHERE {this.Mapper.GetPrimaryKeyColumn()} = @key
                       AND Version = @originalVersion
                       AND IsDeleted = 0;
 
@@ -324,8 +327,8 @@ namespace SQLite.Lib
                 using var updateCommand = new SQLiteCommand(updateSql, connection, transaction);
 
                 // Add all parameters including concurrency check
-                this.mapper.AddParameters(updateCommand, entity);
-                updateCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(entity.Id));
+                this.Mapper.AddParameters(updateCommand, entity);
+                updateCommand.Parameters.AddWithValue("@key", this.Mapper.SerializeKey(entity.Id));
                 updateCommand.Parameters.AddWithValue("@originalVersion", originalVersion);
 
                 var rowsAffected = Convert.ToInt32(await updateCommand.ExecuteScalarAsync(cancellationToken));
@@ -356,11 +359,11 @@ namespace SQLite.Lib
                         await historyConnection.OpenAsync(cancellationToken);
 
                         using var historyCommand = new SQLiteCommand(historyInsertSql, historyConnection);
-                        historyCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(entity.Id));
+                        historyCommand.Parameters.AddWithValue("@key", this.Mapper.SerializeKey(entity.Id));
                         historyCommand.Parameters.AddWithValue("@typeName", typeof(T).Name);
                         historyCommand.Parameters.AddWithValue("@version", newVersion);
                         historyCommand.Parameters.AddWithValue("@oldVersion", originalVersion);
-                        historyCommand.Parameters.AddWithValue("@size", EstimateEntitySize(entity));
+                        historyCommand.Parameters.AddWithValue("@size", this.EstimateEntitySize(entity));
                         historyCommand.Parameters.AddWithValue("@memberName", callerInfo.CallerMemberName ?? (object)DBNull.Value);
                         historyCommand.Parameters.AddWithValue("@filePath", callerInfo.CallerFilePath ?? (object)DBNull.Value);
                         historyCommand.Parameters.AddWithValue("@lineNumber", callerInfo.CallerLineNumber);
@@ -394,7 +397,7 @@ namespace SQLite.Lib
                 // Translate to SQL DELETE for hard delete
                 sql = $@"
                     DELETE FROM {this.tableName}
-                    WHERE {this.mapper.GetPrimaryKeyColumn()} = @key;
+                    WHERE {this.Mapper.GetPrimaryKeyColumn()} = @key;
 
                     SELECT changes();";
             }
@@ -406,7 +409,7 @@ namespace SQLite.Lib
                     UPDATE {this.tableName}
                     SET IsDeleted = 1,
                         LastWriteTime = @lastWriteTime
-                    WHERE {this.mapper.GetPrimaryKeyColumn()} = @key
+                    WHERE {this.Mapper.GetPrimaryKeyColumn()} = @key
                       AND IsDeleted = 0;
 
                     SELECT changes();";
@@ -425,19 +428,19 @@ namespace SQLite.Lib
                 if (callerInfo != null)
                 {
                     var selectOldSql = $@"
-                        SELECT {this.mapper.GetSelectColumns()}
+                        SELECT {this.Mapper.GetSelectColumns()}
                         FROM {this.tableName}
-                        WHERE {this.mapper.GetPrimaryKeyColumn()} = @key
+                        WHERE {this.Mapper.GetPrimaryKeyColumn()} = @key
                         ORDER BY Version DESC
                         LIMIT 1";
 
                     using var selectOldCommand = new SQLiteCommand(selectOldSql, connection, transaction);
-                    selectOldCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(key));
+                    selectOldCommand.Parameters.AddWithValue("@key", this.Mapper.SerializeKey(key));
 
                     using var oldReader = await selectOldCommand.ExecuteReaderAsync(cancellationToken);
                     if (await oldReader.ReadAsync(cancellationToken))
                     {
-                        oldValue = this.mapper.MapFromReader(oldReader);
+                        oldValue = this.Mapper.MapFromReader(oldReader);
                         version = oldValue.Version;
 
                         // Only proceed with audit if the entity wasn't already deleted
@@ -449,7 +452,7 @@ namespace SQLite.Lib
                 }
 
                 using var command = new SQLiteCommand(sql, connection, transaction);
-                command.Parameters.AddWithValue("@key", this.mapper.SerializeKey(key));
+                command.Parameters.AddWithValue("@key", this.Mapper.SerializeKey(key));
 
                 if (!hardDelete)
                 {
@@ -477,7 +480,7 @@ namespace SQLite.Lib
                         await historyConnection.OpenAsync(cancellationToken);
 
                         using var historyCommand = new SQLiteCommand(historyInsertSql, historyConnection);
-                        historyCommand.Parameters.AddWithValue("@key", this.mapper.SerializeKey(key));
+                        historyCommand.Parameters.AddWithValue("@key", this.Mapper.SerializeKey(key));
                         historyCommand.Parameters.AddWithValue("@typeName", typeof(T).Name);
                         historyCommand.Parameters.AddWithValue("@version", version);
                         historyCommand.Parameters.AddWithValue("@oldVersion", oldValue?.Version ?? (object)DBNull.Value);
@@ -553,9 +556,9 @@ namespace SQLite.Lib
             throw new NotImplementedException();
         }
 
-        public ITransactionScope BeginTransaction(CancellationToken cancellationToken = default)
+        public ITransactionScope<T, TKey> BeginTransaction(CancellationToken cancellationToken = default)
         {
-            return new TransactionScope(this.connectionString);
+            return new TransactionScope<T, TKey>(this.connectionString, this);
         }
 
         public Task<int> CleanupExpiredAsync(CancellationToken cancellationToken = default)
@@ -582,7 +585,7 @@ namespace SQLite.Lib
 
             try
             {
-                var serialized = this.mapper.SerializeEntity(entity);
+                var serialized = this.Mapper.SerializeEntity(entity);
                 return serialized?.Length ?? 0;
             }
             catch
@@ -599,15 +602,16 @@ namespace SQLite.Lib
         /// <summary>
         /// Creates a SELECT command for retrieving an entity.
         /// </summary>
-        public SQLiteCommand CreateSelectCommand(TKey key, long version)
+        public SQLiteCommand CreateSelectCommand(TKey key)
         {
             // Create a dummy entity to use with the mapper
             var entity = Activator.CreateInstance<T>();
             entity.Id = key;
-            entity.Version = version;
 
             // Use the mapper to create the command
-            return this.mapper.CreateCommand(DbOperationType.Select, entity, null);
+            var command = this.Mapper.CreateCommand(DbOperationType.Select, key, entity, null);
+            // Note: Connection will be assigned by caller
+            return command;
         }
 
         /// <summary>
@@ -616,7 +620,7 @@ namespace SQLite.Lib
         public SQLiteCommand CreateInsertCommand(T entity)
         {
             // Use the mapper to create the command
-            return this.mapper.CreateCommand(DbOperationType.Insert, entity, null);
+            return this.Mapper.CreateCommand(DbOperationType.Insert, entity.Id, entity, null);
         }
 
         /// <summary>
@@ -625,7 +629,7 @@ namespace SQLite.Lib
         public SQLiteCommand CreateUpdateCommand(T fromEntity, T toEntity)
         {
             // Use the mapper to create the command
-            return this.mapper.CreateCommand(DbOperationType.Update, fromEntity, toEntity);
+            return this.Mapper.CreateCommand(DbOperationType.Update, fromEntity.Id, fromEntity, toEntity);
         }
 
         /// <summary>
@@ -633,16 +637,10 @@ namespace SQLite.Lib
         /// </summary>
         public SQLiteCommand CreateDeleteCommand(TKey key)
         {
-            // Create a dummy entity to use with the mapper
-            var entity = Activator.CreateInstance<T>();
-            entity.Id = key;
-
             // Use the mapper to create the command
-            return this.mapper.CreateCommand(DbOperationType.Delete, entity, null);
+            return this.Mapper.CreateCommand(DbOperationType.Delete, key, null, null);
         }
 
         #endregion
-
-        // Additional methods implementation continues...
     }
 }

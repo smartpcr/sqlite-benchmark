@@ -13,7 +13,8 @@
       "Bash(chmod:*)",
       "Bash(csc:*)",
       "Bash(dotnet run:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

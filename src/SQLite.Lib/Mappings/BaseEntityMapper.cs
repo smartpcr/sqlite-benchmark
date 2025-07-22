@@ -477,7 +477,7 @@ namespace SQLite.Lib.Mappings
 
         #region Public Methods - Command Creation
 
-        public SQLiteCommand CreateCommand(DbOperationType operationType, T fromValue, T toValue)
+        public SQLiteCommand CreateCommand(DbOperationType operationType, TKey key, T fromValue, T toValue)
         {
             var command = new SQLiteCommand();
 
@@ -485,7 +485,7 @@ namespace SQLite.Lib.Mappings
             {
                 case DbOperationType.Select:
                     command.CommandText = this.GenerateSelectCommand();
-                    this.AddSelectParameters(command, fromValue);
+                    this.AddSelectParameters(command, key);
                     break;
 
                 case DbOperationType.Insert:
@@ -857,10 +857,16 @@ namespace SQLite.Lib.Mappings
         {
             var tableName = this.GetTableName();
             var selectColumns = string.Join(", ", this.GetSelectColumns());
-            var primaryKeyColumns = this.GetPrimaryKeyColumns();
+            var primaryKeyColumns = this.GetPrimaryKeyColumns()
+                .Where(pk => !pk.Equals("Version", StringComparison.OrdinalIgnoreCase));
             var whereClause = string.Join(" AND ", primaryKeyColumns.Select(col => $"{col} = @{col}"));
+            var orderClause = this.propertyMappings.Values.FirstOrDefault(p =>
+                !p.IsNotMapped && !p.IsComputed &&
+                p.ColumnName.Equals("Version", StringComparison.OrdinalIgnoreCase)) != null
+                ? "ORDER BY Version DESC LIMIT 1"
+                : string.Empty;
 
-            return $"SELECT {selectColumns} FROM {tableName} WHERE {whereClause}";
+            return $"SELECT {selectColumns} FROM {tableName} WHERE {whereClause} {orderClause}";
         }
 
         /// <summary>
@@ -906,7 +912,7 @@ namespace SQLite.Lib.Mappings
         /// <summary>
         /// Adds parameters for SELECT operation.
         /// </summary>
-        private void AddSelectParameters(SQLiteCommand command, T entity)
+        private void AddSelectParameters(SQLiteCommand command, TKey entityKey)
         {
             var primaryKeyMappings = this.propertyMappings.Values
                 .Where(m => m.IsPrimaryKey)
@@ -914,10 +920,9 @@ namespace SQLite.Lib.Mappings
 
             foreach (var mapping in primaryKeyMappings)
             {
-                var value = mapping.PropertyInfo.GetValue(entity);
                 var parameter = command.CreateParameter();
                 parameter.ParameterName = $"@{mapping.ColumnName}";
-                parameter.Value = value ?? DBNull.Value;
+                parameter.Value = entityKey;
                 command.Parameters.Add(parameter);
             }
         }

@@ -30,6 +30,6 @@ namespace SQLite.Lib.Contracts
         byte[] SerializeEntity(T entity);
         string SerializeKey(TKey key);
         TKey DeserializeKey(string serialized);
-        SQLiteCommand CreateCommand(DbOperationType operationType, T fromValue, T toValue);
+        SQLiteCommand CreateCommand(DbOperationType operationType, TKey key, T fromValue, T toValue);
     }
 }

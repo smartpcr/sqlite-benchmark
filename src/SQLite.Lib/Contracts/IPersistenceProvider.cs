@@ -21,6 +21,8 @@ namespace SQLite.Lib.Contracts
         where T : class, IEntity<TKey>
         where TKey : IEquatable<TKey>
     {
+        ISQLiteEntityMapper<T, TKey> Mapper { get; }
+
         #region CRUD Operations
 
         /// <summary>
@@ -189,9 +191,8 @@ namespace SQLite.Lib.Contracts
         /// Creates a SELECT command for retrieving an entity.
         /// </summary>
         /// <param name="key">The primary key</param>
-        /// <param name="version">The version to retrieve</param>
         /// <returns>The SQL command configured for SELECT operation</returns>
-        System.Data.SQLite.SQLiteCommand CreateSelectCommand(TKey key, long version);
+        System.Data.SQLite.SQLiteCommand CreateSelectCommand(TKey key);
 
         /// <summary>
         /// Creates an INSERT command for adding a new entity.
@@ -223,7 +224,7 @@ namespace SQLite.Lib.Contracts
         /// Begins a new transaction scope.
         /// </summary>
         /// <returns>Transaction scope for managing transactional operations</returns>
-        ITransactionScope BeginTransaction(CancellationToken cancellationToken = default);
+        ITransactionScope<T, TKey> BeginTransaction(CancellationToken cancellationToken = default);
 
         #endregion
 
